@@ -1,0 +1,318 @@
+# Transaction flow diagram. Edit this file, then run ./transaction_flow.sh
+# Same format as workflow-diagram-tool: nodes + edges. See README.md for the field list.
+# Adult course, DEPOSIT: the participant pays a deposit in step 3, then pays the balance later.
+
+workflow:
+  name: "Registration Sale - Adult course (deposit)"
+
+  links:
+    - id: step3
+      name: "Payment step link"
+      color: "#1565c0"
+    - id: thankyou
+      name: "Thank you link"
+      color: "#2e7d32"
+    - id: fail
+      name: "Fail link"
+      color: "#c62828"
+    - id: retry
+      name: "Retry link"
+      color: "#e65100"
+
+  nodes:
+    - id: flow_start
+      label: "START"
+      type: marker
+      subtype: start
+
+    # ---- step 1: users table
+    - id: rx_step1
+      label: "Step 1 Personal info"
+      type: frontend_screen
+      subtype: rx_screen
+      context: "name, email, mobile"
+
+    - id: tbl_user
+      label: "INSERT or UPDATE user"
+      type: db_row
+      subtype: user_row
+      group: users
+
+    # ---- step 2: the participant chooses Pay Deposit
+    - id: rx_step2
+      label: "Step 2 Registration details"
+      type: frontend_screen
+      subtype: rx_screen
+      context:
+        - "fees, discount code, agreements"
+        - "chooses Pay Deposit (default is Pay Full Amount)"
+        - "shown only when deposits are enabled and still accepted"
+
+    - id: tbl_p1
+      label: "INSERT P1"
+      type: db_row
+      subtype: participant_row
+      context:
+        - "program_participant"
+        - "deposit_type = DEPOSIT"
+        - "deposit_amount = the deposit"
+        - "total_amount = full amount"
+        - "balance_due = full amount (same as total_amount)"
+        - "NO transaction row yet"
+
+    # ================= 2. BALANCE (the second phase, drawn below the deposit) =================
+    - id: bal_open
+      label: "Participant opens the balance link"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "2. BALANCE: pay the rest later"
+      context:
+        - "thank-you page Complete Payment button"
+        - "link in the deposit email"
+        - "Complete Payment popup if the same email registers again"
+
+    - id: bal_step3
+      label: "Step 3 Payment: balance"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "2. BALANCE: pay the rest later"
+      context:
+        - "amount = balance_due"
+        - "purpose = REMAINING_AMOUNT"
+        - "every Pay now click creates a new transaction"
+
+    - id: bal_t_ok
+      label: "INSERT T, then UPDATE"
+      type: db_row
+      subtype: transaction_row
+      group: "2. BALANCE: pay the rest later"
+      state: CONFIRMED
+      context:
+        - "program_participant_transaction"
+        - "PENDING -> CONFIRMED"
+
+    - id: bal_p1_ok
+      label: "UPDATE P1"
+      type: db_row
+      subtype: participant_row
+      group: "2. BALANCE: pay the rest later"
+      context:
+        - "program_participant"
+        - "balance_due = balance_due - amount paid (becomes 0)"
+
+    - id: bal_mail_ok
+      label: "Confirmation email"
+      type: notification
+      subtype: email
+      group: "2. BALANCE: pay the rest later"
+      context: "balance_due is 0 now"
+
+    - id: bal_thankyou
+      label: "Thank you page: payment successful"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "2. BALANCE: pay the rest later"
+      context: "shows Amount Paid Now and Total Amount"
+
+    - id: bal_t_fail
+      label: "INSERT T, then UPDATE"
+      type: db_row
+      subtype: transaction_row
+      group: "2. BALANCE: pay the rest later"
+      state: FAILED
+      context: "PENDING -> FAILED"
+
+    - id: bal_no_mail
+      label: "NO failure email"
+      type: notification
+      subtype: email
+      group: "2. BALANCE: pay the rest later"
+      context:
+        - "balance_due is not equal to total_amount"
+        - "participant uses Try again on the failed page"
+
+    # ================= 1. DEPOSIT (the first phase) =================
+    - id: dep_step3
+      label: "Step 3 Payment: deposit"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "1. DEPOSIT: pay the deposit in step 3"
+      context:
+        - "amount = deposit_amount"
+        - "purpose = DEPOSIT"
+        - "every Pay now click creates a new transaction"
+
+    - id: dep_t_ok
+      label: "INSERT T, then UPDATE"
+      type: db_row
+      subtype: transaction_row
+      group: "1. DEPOSIT: pay the deposit in step 3"
+      state: CONFIRMED
+      context:
+        - "program_participant_transaction"
+        - "PENDING -> CONFIRMED"
+        - "P1 becomes visible (first transaction webhook)"
+
+    - id: dep_p1_ok
+      label: "UPDATE P1"
+      type: db_row
+      subtype: participant_row
+      group: "1. DEPOSIT: pay the deposit in step 3"
+      context:
+        - "program_participant"
+        - "balance_due = balance_due - deposit paid"
+        - "payment_status CONFIRMED (DB trigger)"
+
+    - id: dep_mail_ok
+      label: "Deposit email"
+      type: notification
+      subtype: email
+      group: "1. DEPOSIT: pay the deposit in step 3"
+      context:
+        - "DEPOSIT_EMAIL"
+        - "has the link to pay the balance"
+
+    - id: dep_thankyou
+      label: "Thank you page: deposit successful"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "1. DEPOSIT: pay the deposit in step 3"
+      context:
+        - "shows Deposit Paid and Balance Amount"
+        - "Complete Payment button (balance_due > 0)"
+
+    - id: dep_t_fail
+      label: "INSERT T, then UPDATE"
+      type: db_row
+      subtype: transaction_row
+      group: "1. DEPOSIT: pay the deposit in step 3"
+      state: FAILED
+      context: "PENDING -> FAILED"
+
+    - id: dep_mail_fail
+      label: "Deposit failed email"
+      type: notification
+      subtype: email
+      group: "1. DEPOSIT: pay the deposit in step 3"
+      context:
+        - "DEPOSIT_FAILED"
+        - "sent whatever the balance"
+        - "has the retry link"
+
+  edges:
+    - from: flow_start
+      to: rx_step1
+    - from: rx_step1
+      to: tbl_user
+      condition: "Continue"
+    - from: tbl_user
+      to: rx_step2
+    - from: rx_step2
+      to: tbl_p1
+      condition: "Continue with Pay Deposit"
+    - from: tbl_p1
+      to: dep_step3
+      link: step3
+    # ---- deposit
+    - from: dep_step3
+      to: dep_t_ok
+      condition: "click Pay now: payment succeeds"
+    - from: dep_t_ok
+      to: dep_p1_ok
+    - from: dep_t_ok
+      to: dep_mail_ok
+    - from: dep_t_ok
+      to: dep_thankyou
+      link: thankyou
+    - from: dep_step3
+      to: dep_t_fail
+      condition: "click Pay now: payment declined"
+    - from: dep_t_fail
+      to: dep_mail_fail
+    - from: dep_mail_fail
+      to: dep_step3
+      link: retry
+      condition: "Pay now again creates a new row"
+      style: dashed
+    # ---- from the deposit to the balance
+    - from: dep_thankyou
+      to: bal_open
+      link: step3
+      condition: "Complete Payment button"
+    - from: dep_mail_ok
+      to: bal_open
+      link: step3
+      condition: "link in the email"
+    # ---- balance
+    - from: bal_open
+      to: bal_step3
+    - from: bal_step3
+      to: bal_t_ok
+      condition: "click Pay now: payment succeeds"
+    - from: bal_t_ok
+      to: bal_p1_ok
+    - from: bal_t_ok
+      to: bal_mail_ok
+    - from: bal_t_ok
+      to: bal_thankyou
+      link: thankyou
+    - from: bal_step3
+      to: bal_t_fail
+      condition: "click Pay now: payment declined"
+    - from: bal_t_fail
+      to: bal_no_mail
+    - from: bal_t_fail
+      to: bal_step3
+      link: retry
+      condition: "Try again on the failed page"
+      style: dashed
+
+  steps:
+    - step: "Step 1"
+      table: users
+      change: "INSERT user (or UPDATE if the email already exists)"
+    - step: "Step 2, Pay Deposit"
+      table: program_participant
+      change: "INSERT P1: deposit_type = DEPOSIT, deposit_amount = the deposit, total_amount = full amount, balance_due = full amount"
+    - step: "Step 3, deposit paid"
+      table: "program_participant_transaction, program_participant"
+      change: "INSERT T (PENDING), then CONFIRMED; UPDATE P1: balance_due = balance_due - deposit paid"
+    - step: "Step 3, deposit declined"
+      table: program_participant_transaction
+      change: "INSERT T (PENDING), then FAILED. Pay now again inserts a new T"
+    - step: "Balance paid"
+      table: "program_participant_transaction, program_participant"
+      change: "INSERT T (PENDING), then CONFIRMED; UPDATE P1: balance_due = balance_due - amount paid (becomes 0)"
+    - step: "Balance declined"
+      table: program_participant_transaction
+      change: "INSERT T (PENDING), then FAILED. Try again inserts a new T"
+
+  points:
+    - "Deposit registration: the participant pays a part now (deposit_amount) and the rest later (balance_due)."
+    - "At step 2, balance_due is the full amount, the same as total_amount. It drops only when the deposit is paid."
+    - "Every Pay now click creates a new transaction row. A failed row is never reused."
+    - "A failed deposit sends the deposit failed email whatever the balance. A failed balance payment sends no email: the failure email needs balance_due to equal total_amount, and after the deposit it does not."
+    - "The balance is paid online with the thank-you button, the email link or the Complete Payment popup. The teacher recording the balance as an offline payment is not drawn here."
+
+  boxes:
+    - title: "Built URL"
+      lines:
+        - link: step3
+          text: "Step 3 link (rx builds it after step 2). Any link with ?ref= opens step 3:"
+          code: "<rx origin>/<locale>/programs/<program_id>?ref=<registration_id>"
+        - "The same link pays the balance later. Step 3 reads the registration: while the deposit is not paid it charges deposit_amount with purpose DEPOSIT, after the deposit it charges balance_due with purpose REMAINING_AMOUNT."
+        - link: step3
+          text: "Complete Payment button on the thank-you page opens the same step 3 link. The deposit email link, built by BX, is:"
+          code: "<retry_payment_url>?ref=<registration_id>"
+        - "retry_payment_url is saved on the participant at step 2 (rx sends <rx origin>/<locale>/programs/<program_id>)."
+        - link: thankyou
+          text: "After the gateway, success or processing goes to:"
+          code: "<rx origin>/<locale>/programs/<program_id>/thankyou?ref=<registration_id>&caps_transaction_id=<CAPS id>"
+        - link: fail
+          text: "Failed, or any other status, goes to:"
+          code: "<rx origin>/<locale>/programs/<program_id>/failed?ref=<registration_id>&caps_transaction_id=<CAPS id>"
+        - link: retry
+          text: "Try again on the failed page opens the retry page. The deposit failed email, built by BX, links to the same page:"
+          code: "<retry_payment_url>/retry-payment?ref=<ref>&caps_transaction_id=<CAPS id>"
+        - "In the email link, BX picks ref as the participant code when the participant has one, otherwise the registration id."
+        - "The links never change. If the payment is already finished (PROCESSING, or CONFIRMED with balance_due 0), opening the step 3 link goes to the thank-you page."

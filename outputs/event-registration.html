@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Event Registration - Free, Paid and Paid with zero fee</title>
+<style>
+    body { margin: 0; padding: 20px; background: white; font-family: sans-serif; }
+    h1 { text-align: center; margin: 10px 0 6px; font-size: 1.4em; }
+    .summary { text-align: center; max-width: 1000px; margin: 0 auto 14px; color: #444; font-size: 0.95em; }
+    .legend-box { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 10px 16px; margin: 0 auto 16px;
+                  border: 2px solid #424242; border-radius: 6px; background: #fafafa; max-width: fit-content; }
+    .legend-item { padding: 4px 9px; border-radius: 3px; font-size: 0.8em; font-weight: 500; }
+    .mermaid { overflow: auto; margin: 10px 0; text-align: center; }
+    table.counts { border-collapse: collapse; margin: 18px auto; min-width: 700px; }
+    table.counts th { background: #263238; color: #fff; text-align: left; padding: 7px 12px; font-size: 0.85em; }
+    table.counts td { border: 1px solid #cfd8dc; padding: 7px 12px; font-size: 0.85em; }
+    .points { max-width: 1000px; margin: 14px auto; color: #444; font-size: 0.9em; line-height: 1.6; }
+    .points > li { margin-top: 8px; }
+    .points > li > ul { margin: 2px 0 6px; }
+    .note-box { max-width: 1000px; margin: 18px auto; padding: 12px 18px; border: 2px solid #f9a825; border-radius: 6px;
+                background: #fff59d; color: #333; font-size: 0.9em; line-height: 1.5; }
+    .note-box h3 { margin: 0 0 8px; font-size: 1.05em; }
+    .note-box p { margin: 8px 0; overflow-wrap: anywhere; }
+    .link-name { display: inline-block; padding: 1px 9px; margin-right: 4px; border-radius: 10px; color: #fff; font-weight: 700; font-size: 0.95em; }
+    .note-box code { display: inline-block; margin-top: 3px; padding: 2px 6px; background: rgba(255, 255, 255, 0.85); border: 1px solid #e0c94f; border-radius: 3px; font-size: 0.95em; }
+    .notes { max-width: 1000px; margin: 0 auto; color: #555; font-size: 0.8em; }
+.edgeLabel:has(span[style*="visibility:hidden"]) { opacity: 0; }</style>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.esm.min.mjs";
+  import elkLayouts from "https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk@0.2.3/dist/mermaid-layout-elk.esm.min.mjs";
+  mermaid.registerLayoutLoaders(elkLayouts);
+  mermaid.initialize({ startOnLoad: true, theme: 'default', layout: 'elk',
+                       flowchart: { useMaxWidth: false, curve: 'linear', nodeSpacing: 60, rankSpacing: 80 } });
+</script>
+</head>
+<body>
+<div class="legend-box"><span class="legend-item" style="background:#ffcdd2;border:1px solid #b71c1c;stroke-width:2px">rx screen</span><span class="legend-item" style="background:#eceff1;border:1px solid #37474f;stroke-width:2px">CAPS</span><span class="legend-item" style="background:#ede7f6;border:1px solid #4527a0;stroke-width:2px">users row</span><span class="legend-item" style="background:#e3f2fd;border:1px solid #0d47a1;stroke-width:2px">program_participant row</span><span class="legend-item" style="background:#fff59d;border:1px solid #f9a825;stroke-width:2px">transaction PENDING</span><span class="legend-item" style="background:#a5d6a7;border:1px solid #2e7d32;stroke-width:2px">transaction CONFIRMED</span><span class="legend-item" style="background:#ef9a9a;border:1px solid #c62828;stroke-width:2px">transaction FAILED</span><span class="legend-item" style="background:#f5f5f5;border:1px solid #9e9e9e;stroke-width:2px">no row</span><span class="legend-item" style="background:#ffe0b2;border:1px solid #e65100;stroke-width:2px">email</span></div>
+<h1>Event Registration - Free, Paid and Paid with zero fee</h1>
+<p class="summary">Free: no transaction row. Paid: the participant is saved first, then one transaction row per Pay now click, created by the payment webhook. Special case, paid with a zero total: no payment step, but BX writes a CONFIRMED transaction itself.</p>
+<div class="mermaid">
+flowchart TD
+    flow_start(("START"))
+    rx_step1["Step 1 Personal info\n---\nname, email, mobile"]
+    subgraph grp_free_event["FREE event"]
+        free_user[("INSERT or UPDATE user\n---\nsaved by Submit, inside the same register call")]
+        free_p1[("INSERT P1\n---\npayment_status empty\ntotal_amount and balance_due empty\nis_online_payment false\nvisible at once (is_deleted false)")]
+        free_no_t[("NO transaction row\n---\nnothing is written to program_participant_transaction")]
+        free_mail(["Confirmation email\n---\nsent as soon as the registration is saved\nticket generated"])
+        free_thankyou["Thank you page\n---\nfree-event version: registration is successful\nno Total row, no receipt button"]
+    end
+    paid_user[("INSERT or UPDATE user\n---\nsaved when Continue is clicked, before any registration exists")]
+    paid_step2["Step 2 Payment details\n---\nfee level, accommodation, discount code, agreements\nthe button reads Continue, or Submit when the total is 0"]
+    subgraph grp_paid_event["PAID event"]
+        paid_p1[("INSERT P1\n---\npayment_status PENDING\ntotal_amount above 0, balance_due = total_amount\nis_online_payment true\nhidden until the first webhook (is_deleted)\nNO transaction row yet")]
+        paid_step3["Step 3 Payment\n---\nevery Pay now click creates a new CAPS order and a new transaction\nalso opened again from the Failed page (Try again)"]
+        paid_t1[("INSERT T1\n---\ncreated by the payment webhook\nP1 becomes visible (first webhook)")]
+        paid_close["Case 1: user closes the tab or clicks Back\n---\nnothing else runs in rx\nthe Payment step link opens step 3 again"]
+        paid_rescue[["CAPS rescue service\n---\njob re-checks orders that never finished\nolder than 1 hour, then tells BX what the gateway says"]]
+        paid_t1_failed[("UPDATE T1\n---\nPENDING -&gt; FAILED\nwhen the gateway reports the order failed or canceled")]
+        paid_t2[("INSERT T2, then UPDATE\n---\nPENDING -&gt; FAILED")]
+        paid_failed["Failed page\n---\npayment failed or any other status\nhas a Try again button"]
+        paid_mail_retry(["Retry payment email\n---\nsent when the webhook reports FAILED (T1 or T2)"])
+        paid_t3[("INSERT T3, then UPDATE\n---\nPENDING -&gt; CONFIRMED")]
+        paid_p1_paid[("UPDATE P1\n---\nbalance_due reduced by the amount paid\npayment_status CONFIRMED (DB trigger)\nvisible (is_deleted false)")]
+        paid_mail_confirm(["Confirmation email\n---\nsent when T turns CONFIRMED\ninvoice generated"])
+        paid_thankyou["Thank you page\n---\npaid-event version: Thank you, your payment is successful\nTotal row, Download receipt button if invoices are on"]
+    end
+    subgraph grp_special_case_paid_event_with_zero_fee["SPECIAL CASE: paid event with zero fee"]
+        zero_p1[("INSERT P1\n---\npayment_status PENDING\ntotal_amount 0, balance_due 0\nis_online_payment true, no payment method\nvisible at once (is_deleted false)")]
+        zero_t[("INSERT T\n---\nwritten by BX in the same request\ntotal_amount 0, type SALE\nno payment method, no payment id\nno CAPS order, no webhook")]
+        zero_p1_conf[("UPDATE P1\n---\npayment_status PENDING -&gt; CONFIRMED\nset by BX right after the transaction is inserted")]
+        zero_mail(["Confirmation email\n---\nsent at registration\nnot skipped: payment_status is already CONFIRMED"])
+        zero_thankyou["Thank you page\n---\npaid-event version of the page\nshows a Total row"]
+    end
+    flow_start --&gt; rx_step1
+    rx_step1 --&gt;|"FREE event: Submit (bot check, register free single event)"| free_user
+    rx_step1 --&gt;|"PAID event: Continue"| paid_user
+    free_user --&gt; free_p1
+    free_p1 -.-&gt;|"free event: no transaction"| free_no_t
+    free_p1 --&gt; free_mail
+    free_p1 --&gt;|"&lt;span style='color:rgb(46,125,50);font-weight:bold'&gt;Thank you link&lt;/span&gt;&lt;br/&gt;no CAPS id"| free_thankyou
+    paid_user --&gt; paid_step2
+    paid_step2 ---|"&lt;span style='visibility:hidden'&gt;.&lt;/span&gt;"| free_user
+    paid_step2 --&gt;|"total above 0: Continue, register single event"| paid_p1
+    paid_p1 --&gt;|"&lt;span style='color:rgb(21,101,192);font-weight:bold'&gt;Payment step link&lt;/span&gt;"| paid_step3
+    paid_step3 --&gt;|"click 1: CAPS order, webhook created"| paid_t1
+    paid_t1 --&gt;|"gateway not finished"| paid_close
+    paid_close -.-&gt;|"&lt;span style='color:rgb(21,101,192);font-weight:bold'&gt;Payment step link&lt;/span&gt;&lt;br/&gt;step 3 opens again"| paid_step3
+    paid_t1 -.-&gt;|"stays PENDING"| paid_rescue
+    paid_rescue --&gt;|"gateway says failed or canceled"| paid_t1_failed
+    paid_t1_failed --&gt; paid_mail_retry
+    paid_step3 --&gt;|"click 2: payment declined"| paid_t2
+    paid_t2 --&gt;|"&lt;span style='color:rgb(198,40,40);font-weight:bold'&gt;Fail link&lt;/span&gt;"| paid_failed
+    paid_t2 --&gt; paid_mail_retry
+    paid_failed -.-&gt;|"&lt;span style='color:rgb(230,81,0);font-weight:bold'&gt;Retry link&lt;/span&gt;&lt;br/&gt;Try again button"| paid_step3
+    paid_step3 --&gt;|"click 3: payment succeeds"| paid_t3
+    paid_t3 --&gt;|"balance_due reduced"| paid_p1_paid
+    paid_t3 --&gt; paid_mail_confirm
+    paid_t3 --&gt;|"&lt;span style='color:rgb(46,125,50);font-weight:bold'&gt;Thank you link&lt;/span&gt;&lt;br/&gt;with CAPS id"| paid_thankyou
+    paid_step2 --&gt;|"SPECIAL CASE, total is 0: Submit, register single event"| zero_p1
+    zero_p1 --&gt;|"BX inserts it in the same request"| zero_t
+    zero_t --&gt; zero_p1_conf
+    zero_t --&gt; zero_mail
+    zero_p1_conf --&gt;|"&lt;span style='color:rgb(46,125,50);font-weight:bold'&gt;Thank you link&lt;/span&gt;&lt;br/&gt;rx redirects, no gateway, no CAPS id"| zero_thankyou
+    linkStyle 6 stroke:#2e7d32,stroke-width:3px
+    linkStyle 8 stroke:transparent,stroke-width:0px
+    linkStyle 10 stroke:#1565c0,stroke-width:3px
+    linkStyle 13 stroke:#1565c0,stroke-width:3px
+    linkStyle 18 stroke:#c62828,stroke-width:3px
+    linkStyle 20 stroke:#e65100,stroke-width:3px
+    linkStyle 24 stroke:#2e7d32,stroke-width:3px
+    linkStyle 29 stroke:#2e7d32,stroke-width:3px
+
+    classDef rxScreen fill:#ffcdd2,stroke:#b71c1c,stroke-width:2px;
+    classDef bxScreen fill:#e0f7fa,stroke:#006064,stroke-width:2px;
+    classDef bxService fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px;
+    classDef capsService fill:#eceff1,stroke:#37474f,stroke-width:2px;
+    classDef userRow fill:#ede7f6,stroke:#4527a0,stroke-width:2px;
+    classDef participantRow fill:#e3f2fd,stroke:#0d47a1,stroke-width:2px;
+    classDef txPending fill:#fff59d,stroke:#f9a825,stroke-width:2px;
+    classDef txProcessing fill:#b3e5fc,stroke:#0277bd,stroke-width:2px;
+    classDef txConfirmed fill:#a5d6a7,stroke:#2e7d32,stroke-width:2px;
+    classDef txFailed fill:#ef9a9a,stroke:#c62828,stroke-width:2px;
+    classDef txNotReceived fill:#ffccbc,stroke:#bf360c,stroke-width:2px;
+    classDef txNone fill:#f5f5f5,stroke:#9e9e9e,stroke-width:2px;
+    classDef email fill:#ffe0b2,stroke:#e65100,stroke-width:2px;
+    classDef startNode fill:#2e7d32,stroke:#1b5e20,stroke-width:3px,color:#fff;
+    classDef problem fill:#ffebee,stroke:#c62828,stroke-width:3px,stroke-dasharray:6 3;
+    classDef expected fill:#c8e6c9,stroke:#2e7d32,stroke-width:3px;
+    class flow_start startNode;
+    class rx_step1,free_thankyou,paid_step2,paid_step3,paid_close,paid_failed,paid_thankyou,zero_thankyou rxScreen;
+    class free_user,paid_user userRow;
+    class free_p1,paid_p1,paid_p1_paid,zero_p1,zero_p1_conf participantRow;
+    class free_no_t txNone;
+    class free_mail,paid_mail_retry,paid_mail_confirm,zero_mail email;
+    class paid_t1 txPending;
+    class paid_rescue capsService;
+    class paid_t1_failed,paid_t2 txFailed;
+    class paid_t3,zero_t txConfirmed;
+    style grp_free_event fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;
+    style grp_paid_event fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;
+    style grp_special_case_paid_event_with_zero_fee fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;
+</div>
+
+<div class="note-box"><h3>Built URL</h3><p><span class="link-name" style="background:#1565c0">Payment step link</span> PAID: rx builds it after step 2. Any link with ?ref= opens step 3:<br><code>&lt;rx origin&gt;/&lt;locale&gt;/programs/&lt;program_id&gt;?ref=&lt;registration_id&gt;</code></p><p>registration_id is the participant&#x27;s registration UUID, returned by the register call. rx also sends it to CAPS as participant_id when Pay now is clicked.</p><p><span class="link-name" style="background:#2e7d32">Thank you link</span> PAID: after the gateway, success, processing or pay later goes to:<br><code>&lt;rx origin&gt;/&lt;locale&gt;/programs/&lt;program_id&gt;/thankyou?ref=&lt;registration_id&gt;&amp;caps_transaction_id=&lt;CAPS id&gt;</code></p><p><span class="link-name" style="background:#2e7d32">Thank you link</span> FREE and ZERO FEE: Submit goes straight to the thank-you page. There is no payment, so there is no CAPS id:<br><code>&lt;rx origin&gt;/&lt;locale&gt;/programs/&lt;program_id&gt;/thankyou?ref=&lt;registration_id&gt;</code></p><p><span class="link-name" style="background:#c62828">Fail link</span> PAID: failed, or any other status, goes to:<br><code>&lt;rx origin&gt;/&lt;locale&gt;/programs/&lt;program_id&gt;/failed?ref=&lt;registration_id&gt;&amp;caps_transaction_id=&lt;CAPS id&gt;</code></p><p><span class="link-name" style="background:#e65100">Retry link</span> PAID: the Try again button on the failed page opens:<br><code>&lt;rx origin&gt;/&lt;locale&gt;/programs/&lt;program_id&gt;/retry-payment?ref=&lt;registration_id&gt;&amp;caps_transaction_id=&lt;CAPS id&gt;</code></p><p>The links never change. If the payment is already finished, opening the step 3 link goes to the thank-you page.</p></div>
+<table class="counts"><tr><th>Step</th><th>Table</th><th>Rows</th></tr><tr><td><b>FREE, Step 1 Submit</b></td><td>users</td><td>INSERT user (or UPDATE if the email already exists)</td></tr><tr><td><b>FREE, Step 1 Submit</b></td><td>program_participant</td><td>INSERT P1, payment_status empty, no amounts</td></tr><tr><td><b>FREE, Step 1 Submit</b></td><td>program_participant_transaction</td><td>nothing: a free event never creates a transaction row</td></tr><tr><td><b>PAID or ZERO FEE, Step 1 Continue</b></td><td>users</td><td>INSERT user (or UPDATE if the email already exists)</td></tr><tr><td><b>PAID, Step 2 Continue</b></td><td>program_participant</td><td>INSERT P1, payment_status PENDING, total_amount and balance_due set</td></tr><tr><td><b>PAID, Step 3 click 1</b></td><td>program_participant_transaction</td><td>INSERT T1 PENDING (webhook), then FAILED (rescue service)</td></tr><tr><td><b>PAID, Step 3 click 2</b></td><td>program_participant_transaction</td><td>INSERT T2 PENDING (webhook), then FAILED (declined)</td></tr><tr><td><b>PAID, Step 3 click 3</b></td><td>program_participant_transaction</td><td>INSERT T3 PENDING (webhook), then CONFIRMED</td></tr><tr><td><b>PAID, Step 3 click 3</b></td><td>program_participant</td><td>UPDATE P1, balance_due reduced, payment_status CONFIRMED</td></tr><tr><td><b>ZERO FEE, Step 2 Submit</b></td><td>program_participant</td><td>INSERT P1, payment_status PENDING, total_amount 0, balance_due 0</td></tr><tr><td><b>ZERO FEE, Step 2 Submit</b></td><td>program_participant_transaction</td><td>INSERT T CONFIRMED, total_amount 0, written by BX</td></tr><tr><td><b>ZERO FEE, Step 2 Submit</b></td><td>program_participant</td><td>UPDATE P1, payment_status CONFIRMED</td></tr></table>
+<ul class="points"><li>FREE: one step. Submit saves the user and the participant in one request. There is no payment, no CAPS order and no payment webhook, so no program_participant_transaction row is created.</li><li>FREE: the participant is visible straight away and the confirmation email goes out at registration. Free is decided by the event (is_paid_program is false), not by the amount.</li><li>PAID: Step 1 writes the users row. Step 2 inserts the program_participant row. No transaction row exists yet.</li><li>PAID: every Pay now click in step 3 creates one more transaction row. The payment webhook inserts it, one row per CAPS order.</li><li>PAID: T1 abandoned is PENDING, later FAILED by the rescue service. T2 declined is FAILED, the retry email is sent and the Failed page offers Try again. T3 paid is CONFIRMED.</li><li>PAID: if the bank is still processing, T becomes PROCESSING, the thank-you page says processing and no email is sent yet. A CONFIRMED transaction is never changed back by a later webhook.</li><li>SPECIAL CASE, zero fee: the event is paid but the payable total is 0 (fee level price 0, or a discount code brings it to 0). Steps 1 and 2 are the same as a paid event, but the Step 2 button reads Submit and there is no step 3.</li><li>SPECIAL CASE: BX writes the CONFIRMED transaction itself, in the same request that inserts P1. rx makes no CAPS call. T has total_amount 0, no payment method and no payment id.</li><li>Compare: a free event has no transaction row. A paid event gets its rows later, from a webhook. A zero-fee event gets its row at registration, from BX.</li></ul>
+<div class="notes"><p>Single-participant registration. Group and ticketed events have their own pages and register calls, with the same free / paid / zero-fee rules (in a group registration only the primary participant gets the zero-fee transaction).</p><p>Code-derived (rx, bx-be-nestjs and caps-be on origin/dev), not run on a live system.</p><p>Not in the repositories, so assumed: the database trigger that sets payment_status CONFIRMED after a webhook, and any trigger that changes registration_transaction_status. P1 stays hidden until the first webhook only when the tenant does not show unpaid registrations. The rescue service FAILs an abandoned order only if the gateway reports it as failed or canceled.</p><p>Not checked: whether the zero-fee Thank you page shows the free wording or the &#x27;payment is successful&#x27; wording (it depends on total_amount being exactly 0).</p><p>Possible gap, not confirmed in practice: when a registration is saved again with an existing registration id, the update path does not create the zero-fee transaction.</p></div>
+</body>
+</html>

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Additional Sale - Proposed Option B: keep T1 untouched, insert a new row for every attempt</title>
+<style>
+    body { margin: 0; padding: 20px; background: white; font-family: sans-serif; }
+    h1 { text-align: center; margin: 10px 0 6px; font-size: 1.4em; }
+    .summary { text-align: center; max-width: 1000px; margin: 0 auto 14px; color: #444; font-size: 0.95em; }
+    .legend-box { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 10px 16px; margin: 0 auto 16px;
+                  border: 2px solid #424242; border-radius: 6px; background: #fafafa; max-width: fit-content; }
+    .legend-item { padding: 4px 9px; border-radius: 3px; font-size: 0.8em; font-weight: 500; }
+    .mermaid { overflow: auto; margin: 10px 0; text-align: center; }
+    table.counts { border-collapse: collapse; margin: 18px auto; min-width: 700px; }
+    table.counts th { background: #263238; color: #fff; text-align: left; padding: 7px 12px; font-size: 0.85em; }
+    table.counts td { border: 1px solid #cfd8dc; padding: 7px 12px; font-size: 0.85em; }
+    .points { max-width: 1000px; margin: 14px auto; color: #444; font-size: 0.9em; line-height: 1.6; }
+    .points > li { margin-top: 8px; }
+    .points > li > ul { margin: 2px 0 6px; }
+    .note-box { max-width: 1000px; margin: 18px auto; padding: 12px 18px; border: 2px solid #f9a825; border-radius: 6px;
+                background: #fff59d; color: #333; font-size: 0.9em; line-height: 1.5; }
+    .note-box h3 { margin: 0 0 8px; font-size: 1.05em; }
+    .note-box p { margin: 8px 0; overflow-wrap: anywhere; }
+    .link-name { display: inline-block; padding: 1px 9px; margin-right: 4px; border-radius: 10px; color: #fff; font-weight: 700; font-size: 0.95em; }
+    .note-box code { display: inline-block; margin-top: 3px; padding: 2px 6px; background: rgba(255, 255, 255, 0.85); border: 1px solid #e0c94f; border-radius: 3px; font-size: 0.95em; }
+    .notes { max-width: 1000px; margin: 0 auto; color: #555; font-size: 0.8em; }
+</style>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: true, theme: 'default', flowchart: { useMaxWidth: false } });
+</script>
+</head>
+<body>
+<div class="legend-box"><span class="legend-item" style="background:#ffcdd2;border:1px solid #b71c1c;stroke-width:2px">rx screen</span><span class="legend-item" style="background:#e0f7fa;border:1px solid #006064;stroke-width:2px">BX screen (teacher)</span><span class="legend-item" style="background:#c8e6c9;border:1px solid #1b5e20;stroke-width:2px">BX API / webhook</span><span class="legend-item" style="background:#e3f2fd;border:1px solid #0d47a1;stroke-width:2px">program_participant row</span><span class="legend-item" style="background:#fff59d;border:1px solid #f9a825;stroke-width:2px">transaction PENDING</span><span class="legend-item" style="background:#a5d6a7;border:1px solid #2e7d32;stroke-width:2px">transaction CONFIRMED</span><span class="legend-item" style="background:#ef9a9a;border:1px solid #c62828;stroke-width:2px">transaction FAILED</span><span class="legend-item" style="background:#ffe0b2;border:1px solid #e65100;stroke-width:2px">email</span></div>
+<h1>Additional Sale - Proposed Option B: keep T1 untouched, insert a new row for every attempt</h1>
+<p class="summary"></p>
+<div class="mermaid">
+flowchart TD
+    flow_start(("START"))
+    bx_create["Teacher submits the additional sale\n---\nPayment Mode: Online"]
+    t1_new[("INSERT T1 (id 101)\n---\nprogram_participant_transaction\ncaps_transaction_id = null\npayment_transaction_id = null, pg_name = null\norganization_fee = 100.00, total_amount = 110.00")]
+    p1_new[("UPDATE P1\n---\nprogram_participant\nbalance_due = amount\ntotal_amount = total_amount + amount")]
+    mail_request(["Request email\n---\nto the participant\nthe link carries the T1 id (trxnId)"])
+    rx_pay["Participant clicks Pay now\n---\nrx passes trxnId = the T1 id to CAPS\nevery click creates a new CAPS order: C1, C2, C3 ..."]
+    hook_rule[["Webhook rule (additional sale only)\n---\n1. a row with this CAPS id exists: update it\n2. else load T1 by trxnId and insert a new row copied from T1\n3. the webhook never writes to T1"]]
+    rep[["Same CAPS id again\n---\nrepeat webhook for the same attempt\nrule 1: that row is updated, no duplicate"]]
+    t1_keep[("T1 (id 101) stays as the admin created it\n---\nnever changed by a payment\nstays PENDING even after a later attempt is paid")]
+    b1[("Attempt 1 (C1) fails: INSERT T2\n---\nid 102 (T2), copied from T1\ncaps_transaction_id = C1\npayment_transaction_id = pi_aaa, pg_name = stripe")]
+    b2[("Attempt 2 (C2) succeeds: INSERT T3\n---\nid 103 (T3), copied from T1\ncaps_transaction_id = C2\npayment_transaction_id = pi_bbb")]
+    p1_paid[("UPDATE P1\n---\nprogram_participant\nbalance_due = balance_due - amount paid\nonly once, when the paid row is CONFIRMED")]
+    mail_ok(["Success email\n---\nwith invoice\nattached to the paid row"])
+    flow_start --&gt; bx_create
+    bx_create --&gt; t1_new
+    t1_new --&gt; p1_new
+    p1_new --&gt; mail_request
+    mail_request --&gt;|"participant clicks the link"| rx_pay
+    rx_pay --&gt;|"CAPS order created, webhook"| hook_rule
+    hook_rule -.-&gt;|"same CAPS id again"| rep
+    hook_rule -.-&gt;|"never written"| t1_keep
+    hook_rule --&gt;|"attempt 1: C1 not found"| b1
+    hook_rule --&gt;|"attempt 2: C2 not found"| b2
+    b2 --&gt; p1_paid
+    b2 --&gt; mail_ok
+
+    classDef rxScreen fill:#ffcdd2,stroke:#b71c1c,stroke-width:2px;
+    classDef bxScreen fill:#e0f7fa,stroke:#006064,stroke-width:2px;
+    classDef bxService fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px;
+    classDef capsService fill:#eceff1,stroke:#37474f,stroke-width:2px;
+    classDef userRow fill:#ede7f6,stroke:#4527a0,stroke-width:2px;
+    classDef participantRow fill:#e3f2fd,stroke:#0d47a1,stroke-width:2px;
+    classDef txPending fill:#fff59d,stroke:#f9a825,stroke-width:2px;
+    classDef txProcessing fill:#b3e5fc,stroke:#0277bd,stroke-width:2px;
+    classDef txConfirmed fill:#a5d6a7,stroke:#2e7d32,stroke-width:2px;
+    classDef txFailed fill:#ef9a9a,stroke:#c62828,stroke-width:2px;
+    classDef txNotReceived fill:#ffccbc,stroke:#bf360c,stroke-width:2px;
+    classDef txNone fill:#f5f5f5,stroke:#9e9e9e,stroke-width:2px;
+    classDef email fill:#ffe0b2,stroke:#e65100,stroke-width:2px;
+    classDef startNode fill:#2e7d32,stroke:#1b5e20,stroke-width:3px,color:#fff;
+    classDef problem fill:#ffebee,stroke:#c62828,stroke-width:3px,stroke-dasharray:6 3;
+    classDef expected fill:#c8e6c9,stroke:#2e7d32,stroke-width:3px;
+    class flow_start startNode;
+    class bx_create bxScreen;
+    class t1_new,t1_keep txPending;
+    class p1_new,p1_paid participantRow;
+    class mail_request,mail_ok email;
+    class rx_pay rxScreen;
+    class hook_rule,rep bxService;
+    class b1 txFailed;
+    class b2 txConfirmed;
+</div>
+
+<div class="note-box"><h3>Changes needed with either option (bx-be-nestjs)</h3><p>Duplicate-payment guard (validate-payment-order). Today: it checks only the row whose id equals trxnId and ignores PENDING and FAILED rows. Change: check every row of the same sale and abort with REFRESH_AND_ABORT if any is CONFIRMED, PROCESSING or NOT_RECEIVED. Without this a participant could pay twice.</p><p>rx additional-sale read path (rx-additional-sale-participant-data). Today: it returns only the row whose id equals trxnId. Change: return the sale-level status, the CONFIRMED or PROCESSING row if one exists, otherwise the latest attempt. Otherwise rx can show the pay page again after a successful payment.</p><p>Revoke. Today: it subtracts the row&#x27;s amount from the participant&#x27;s totals. Change: block it if any attempt of the sale is CONFIRMED or PROCESSING, and apply the totals adjustment once.</p><p>Edit payment. Today: PENDING rows only, and CONFIRMED reduces balance_due. Change: block it if another attempt of the same sale is already paid.</p><p>Lists, exports and program summary. Today: they select is_additional_sale = true, one row per sale. Change: decide per screen whether to show every attempt or only the winning one. Which statuses the summary counts has not been checked.</p><p>Notifications. Today: a second FAILED on the same row sends no email because the status did not change. Change: each new FAILED row counts as a status change and sends an email. Confirm that is wanted.</p><p>Invoices and the success email: no change, they attach to the paid row.</p><p>Offline additional sale: no change in either option. CAPS is never involved, so no webhook arrives. Safety net to agree: validate-payment-order rejects an online payment for an additional sale created offline (payment_method_id set and caps_transaction_id null), because the rule &#x27;fill T1 if it has no CAPS id&#x27; would match an offline row paid through a leftover link.</p></div><div class="note-box"><h3>Example: Riya (what each change above means)</h3><p>The sale. Riya paid her course in full: total_amount 500, balance_due 0. The teacher adds an additional sale of 110. T1 (id 101) is inserted as PENDING and her totals become total_amount 610, balance_due 110. Attempt 1 fails and becomes row 102 (FAILED). Attempt 2 succeeds and becomes row 103 (CONFIRMED). T1 (101) is never touched, so it stays PENDING. Her balance_due goes back to 0.</p><p>1. Duplicate-payment guard. Problem: it checks only row 101, but Riya&#x27;s paid row is 103, so 101 still says PENDING. Example: next week she clicks the old email link and presses Pay now. The check sees PENDING and lets her pay another 110. Fix: check all rows of the sale (101, 102, 103). If any is CONFIRMED, block it.</p><p>2. What the link page shows. Problem: the page asks BX for the sale&#x27;s status and BX answers with row 101&#x27;s status, PENDING. Example: the page shows Pay now again, though she already paid. Fix: BX answers with the sale&#x27;s real status. If any row is CONFIRMED, it says CONFIRMED.</p><p>3. Revoke. Revoke cancels the extra charge: the row becomes NOT_RECEIVED and 110 is taken off her totals. Problem: the teacher sees row 101 still PENDING and clicks Revoke. Example: her total_amount drops from 610 to 500, but the money was already paid, so her totals no longer match what she paid. Fix: block revoke when any attempt is CONFIRMED or PROCESSING, and subtract only once.</p><p>4. Edit payment. The teacher uses it to mark a pending offline sale as paid. Problem: the teacher edits the leftover PENDING row 101 to Confirmed. Example: two rows are now CONFIRMED for one 110 charge (101 and 103), so reports show 220 received. Fix: block the edit if another attempt of the same sale is already paid.</p><p>5. Lists, exports and the summary (decision). Today one sale is one row, so one line. After: Riya&#x27;s sale shows as 3 lines (101 PENDING, 102 FAILED, 103 CONFIRMED), the total reads 330 for a 110 sale, and exports and counts change the same way. Decide: show every attempt, or only the winning one (the paid row, otherwise the latest).</p><p>6. Failure emails (decision). A failure email goes out when a row changes to FAILED. Today her second failed payment is the same row and still FAILED, so there is no change and no email: she gets one email however many times it fails. After: every failed attempt is a new FAILED row, so three failures send three emails. Decide: is one email per failed attempt wanted?</p><p>7. Invoices and the success email: no change. They attach to the paid row, so here they belong to row 103.</p><p>8. Offline sale and the safety net (decision). An offline sale is cash recorded by the teacher, with no CAPS id. Example: the teacher records 110 as Pending with payment method Cash. Riya&#x27;s request email still contains a pay link. Problem in Option A: if she pays online instead, its rule &#x27;T1 has no CAPS id, so fill T1&#x27; would match the cash row and overwrite Cash with the online payment, so the teacher&#x27;s cash record is lost. The current system already lets this happen. In this option (my reading, not from the PDF) the online payment would be a new row next to the cash row, and the teacher could still confirm the cash, so the charge is paid twice. Fix: block online payment for a sale created offline (it has a payment method and no CAPS id).</p></div>
+<table class="counts"><tr><th>Step</th><th>Table</th><th>Rows</th></tr><tr><td><b>Admin submits</b></td><td>program_participant_transaction</td><td>101 (T1) PENDING; caps_transaction_id null; payment_transaction_id null; pg_name null; total_amount 110.00</td></tr><tr><td><b>Attempt 1 (C1) fails</b></td><td>program_participant_transaction</td><td>102 (T2) is inserted, copied from T1: FAILED; caps_transaction_id C1; payment_transaction_id pi_aaa; pg_name stripe</td></tr><tr><td><b>Attempt 2 (C2) succeeds</b></td><td>program_participant_transaction</td><td>103 (T3) is inserted, copied from T1: CONFIRMED; C2; pi_bbb; stripe</td></tr><tr><td><b>T1 afterwards</b></td><td>program_participant_transaction</td><td>101 (T1) is never written: it stays PENDING</td></tr><tr><td><b>Participant balance</b></td><td>program_participant</td><td>balance_due = balance_due - amount paid, once, when T3 is CONFIRMED</td></tr></table>
+<ul class="points"><li>Today every retry overwrites T1, so only the last attempt is kept. This option keeps every attempt and never touches T1.</li><li>T1 stays exactly as the admin created it. Every payment attempt, including the first, is a new row copied from T1. The webhook never writes to T1.</li><li>This removes the &#x27;fill T1 if it has no CAPS id&#x27; step, the race between two first webhooks, and the case where C1 is not saved.</li><li>Drawback 1: T1 stays PENDING forever. Even after T3 is paid, T1 still reads PENDING. It keeps counting in no_of_open_transactions, and a screen that lists additional sales shows the one sale twice (the charge row and the payment rows).</li><li>Drawback 2: revoke and edit-payment on T1 can double-apply. An admin acting on the still-PENDING T1 after T3 was paid would change the totals a second time. Both actions need a guard that checks the payment rows.</li><li>Drawback 3: rx reads only T1&#x27;s status, so after T3 is paid it could show the pay page again. Drawback 4: there is no marker for a settled charge. To stop T1 looking open, a new status or flag may be needed, which is a database change in bx-be.</li><li>Trigger test (course participant, rolled back): a copied PENDING row followed by CONFIRMED reduced the balance breakdown once (595 to 495). A charge row left PENDING next to paid rows was not tested.</li></ul>
+<div class="notes"></div>
+</body>
+</html>

@@ -1,0 +1,124 @@
+flowchart TD
+    flow_start(("START"))
+    bx_popup["Teacher opens Fee Adjustments\n---\nfees, reason, Payment Mode\nonly when the participant has fully paid"]
+    subgraph grp_offline_teacher_records_the_payment["OFFLINE: teacher records the payment"]
+        off_t_pend[("INSERT T\n---\nprogram_participant_transaction\nis_additional_sale = true")]
+        off_edit["Teacher edits the payment, status Confirmed\n---\nmoney received"]
+        off_t_ok[("UPDATE T\n---\nPENDING -> CONFIRMED")]
+        off_p1_ok[("UPDATE P1\n---\nbalance_due = balance_due - amount paid")]
+        off_mail_ok2(["Success email\n---\nonly if send confirmation is ticked"])
+        off_p1_pend[("UPDATE P1\n---\nbalance_due = amount\ntotal_amount = total_amount + amount")]
+        off_mail_req(["Request email\n---\nto the participant, teacher CC optional\nstill has the Pay link"])
+        off_rx_pay["Participant clicks the Pay link and pays online\n---\nAdditional sale page: Continue, Pay now\nCAPS order, webhook updates the same T"]
+        off_t_online[("UPDATE T\n---\nPENDING -> CONFIRMED\npayment method changes from offline to the online one\ntotal_amount = amount paid online")]
+        off_p1_online[("UPDATE P1\n---\nbalance_due = balance_due - amount paid (becomes 0)")]
+        off_mail_ok3(["Success email\n---\nwith invoice"])
+        off_t_fail[("UPDATE T\n---\nPENDING -> FAILED\npayment method changes to the online one\nteacher cannot edit it or create a new additional sale")]
+        off_mail_fail(["Failure email\n---\nhas the Retry link\nparticipant must pay with it, the same T is updated"])
+        off_thankyou["Thank you page\n---\npayment success or processing"]
+        off_failed["Failed page\n---\npayment failed or any other status\nhas a Try again button"]
+        off_close["Participant closes the tab or clicks Back\n---\nT stays PENDING\nthe link still works\npayment method may already show online"]
+        off_t_conf[("INSERT T\n---\nprogram_participant_transaction\nis_additional_sale = true\nmethod, date, receipt saved")]
+        off_p1_conf[("UPDATE P1\n---\nprogram_participant\ntotal_amount = total_amount + amount\nbalance_due unchanged")]
+        off_mail_ok1(["Success email\n---\nwith invoice"])
+    end
+    subgraph grp_revoke_same_for_online_and_offline["REVOKE: same for online and offline"]
+        rev_click["Teacher clicks Revoke\n---\nonly while T is PENDING"]
+        rev_t[("UPDATE T\n---\nPENDING -> NOT_RECEIVED")]
+        rev_p1[("UPDATE P1\n---\ntotal_amount = total_amount - amount\nbalance_due = balance_due - amount")]
+        rev_mail(["Revoke email\n---\nthe link now says revoked"])
+    end
+    subgraph grp_online_participant_pays_with_the_email_link["ONLINE: participant pays with the email link"]
+        on_t_new[("INSERT T\n---\nprogram_participant_transaction\nis_additional_sale = true")]
+        on_p1_new[("UPDATE P1\n---\nprogram_participant\nbalance_due = amount\ntotal_amount = total_amount + amount")]
+        on_mail_request(["Request email\n---\nto the participant, teacher CC optional\nhas the Pay link"])
+        on_rx_pay["Additional sale page: Continue, Pay now\n---\nparticipant opens the link\nCAPS order, webhook updates the same T"]
+        on_t_ok[("UPDATE T\n---\nPENDING -> CONFIRMED")]
+        on_p1_ok[("UPDATE P1\n---\nbalance_due = balance_due - amount paid")]
+        on_mail_ok(["Success email\n---\nwith invoice"])
+        on_t_fail[("UPDATE T\n---\nPENDING -> FAILED\nteacher cannot edit it or create a new additional sale")]
+        on_mail_fail(["Failure email\n---\nhas the Retry link\nparticipant must pay with it, the same T is updated"])
+        on_thankyou["Thank you page\n---\npayment success or processing"]
+        on_failed["Failed page\n---\npayment failed or any other status\nhas a Try again button"]
+        on_close["Participant closes the tab or clicks Back\n---\nT stays PENDING\nthe link still works"]
+    end
+    flow_start --> bx_popup
+    bx_popup -->|"Payment Mode: Online"| on_t_new
+    on_t_new --> on_p1_new
+    on_p1_new --> on_mail_request
+    on_mail_request -->|"<span style='color:rgb(21,101,192);font-weight:bold'>Pay link</span><br/>participant clicks it"| on_rx_pay
+    on_rx_pay -->|"payment succeeds"| on_t_ok
+    on_t_ok --> on_p1_ok
+    on_t_ok --> on_mail_ok
+    on_t_ok -->|"<span style='color:rgb(46,125,50);font-weight:bold'>Thank you link</span>"| on_thankyou
+    on_rx_pay -->|"payment declined"| on_t_fail
+    on_t_fail --> on_mail_fail
+    on_t_fail -->|"<span style='color:rgb(198,40,40);font-weight:bold'>Fail link</span>"| on_failed
+    on_failed -.->|"<span style='color:rgb(230,81,0);font-weight:bold'>Retry link</span><br/>Try again button"| on_rx_pay
+    on_mail_fail -.->|"<span style='color:rgb(230,81,0);font-weight:bold'>Retry link</span><br/>opens the payment step again"| on_rx_pay
+    on_rx_pay -.-> on_close
+    bx_popup -->|"Payment Mode: Offline, status Pending"| off_t_pend
+    bx_popup -->|"Payment Mode: Offline, status Confirmed"| off_t_conf
+    off_t_conf --> off_p1_conf
+    off_t_conf --> off_mail_ok1
+    off_t_pend -.->|"payment received"| off_edit
+    off_t_pend --> off_p1_pend
+    off_p1_pend --> off_mail_req
+    off_mail_req -.->|"<span style='color:rgb(21,101,192);font-weight:bold'>Pay link</span><br/>participant clicks it"| off_rx_pay
+    off_rx_pay -->|"payment succeeds"| off_t_online
+    off_t_online --> off_p1_online
+    off_t_online --> off_mail_ok3
+    off_t_online -->|"<span style='color:rgb(46,125,50);font-weight:bold'>Thank you link</span>"| off_thankyou
+    off_rx_pay -->|"payment declined"| off_t_fail
+    off_t_fail --> off_mail_fail
+    off_t_fail -->|"<span style='color:rgb(198,40,40);font-weight:bold'>Fail link</span>"| off_failed
+    off_failed -.->|"<span style='color:rgb(230,81,0);font-weight:bold'>Retry link</span><br/>Try again button"| off_rx_pay
+    off_mail_fail -.->|"<span style='color:rgb(230,81,0);font-weight:bold'>Retry link</span><br/>opens the payment step again"| off_rx_pay
+    off_rx_pay -.-> off_close
+    off_edit --> off_t_ok
+    off_t_ok --> off_p1_ok
+    off_t_ok --> off_mail_ok2
+    on_t_new -.->|"while PENDING"| rev_click
+    off_t_pend -.->|"while PENDING"| rev_click
+    rev_click --> rev_t
+    rev_t --> rev_p1
+    rev_t --> rev_mail
+    linkStyle 4 stroke:#1565c0,stroke-width:3px
+    linkStyle 8 stroke:#2e7d32,stroke-width:3px
+    linkStyle 11 stroke:#c62828,stroke-width:3px
+    linkStyle 12 stroke:#e65100,stroke-width:3px
+    linkStyle 13 stroke:#e65100,stroke-width:3px
+    linkStyle 22 stroke:#1565c0,stroke-width:3px
+    linkStyle 26 stroke:#2e7d32,stroke-width:3px
+    linkStyle 29 stroke:#c62828,stroke-width:3px
+    linkStyle 30 stroke:#e65100,stroke-width:3px
+    linkStyle 31 stroke:#e65100,stroke-width:3px
+
+    classDef rxScreen fill:#ffcdd2,stroke:#b71c1c,stroke-width:2px;
+    classDef bxScreen fill:#e0f7fa,stroke:#006064,stroke-width:2px;
+    classDef bxService fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px;
+    classDef capsService fill:#eceff1,stroke:#37474f,stroke-width:2px;
+    classDef userRow fill:#ede7f6,stroke:#4527a0,stroke-width:2px;
+    classDef participantRow fill:#e3f2fd,stroke:#0d47a1,stroke-width:2px;
+    classDef txPending fill:#fff59d,stroke:#f9a825,stroke-width:2px;
+    classDef txProcessing fill:#b3e5fc,stroke:#0277bd,stroke-width:2px;
+    classDef txConfirmed fill:#a5d6a7,stroke:#2e7d32,stroke-width:2px;
+    classDef txFailed fill:#ef9a9a,stroke:#c62828,stroke-width:2px;
+    classDef txNotReceived fill:#ffccbc,stroke:#bf360c,stroke-width:2px;
+    classDef txNone fill:#f5f5f5,stroke:#9e9e9e,stroke-width:2px;
+    classDef email fill:#ffe0b2,stroke:#e65100,stroke-width:2px;
+    classDef startNode fill:#2e7d32,stroke:#1b5e20,stroke-width:3px,color:#fff;
+    classDef problem fill:#ffebee,stroke:#c62828,stroke-width:3px,stroke-dasharray:6 3;
+    classDef expected fill:#c8e6c9,stroke:#2e7d32,stroke-width:3px;
+    class flow_start startNode;
+    class bx_popup,off_edit,rev_click bxScreen;
+    class off_t_pend,on_t_new txPending;
+    class off_t_ok,off_t_online,off_t_conf,on_t_ok txConfirmed;
+    class off_p1_ok,off_p1_pend,off_p1_online,off_p1_conf,rev_p1,on_p1_new,on_p1_ok participantRow;
+    class off_mail_ok2,off_mail_req,off_mail_ok3,off_mail_fail,off_mail_ok1,rev_mail,on_mail_request,on_mail_ok,on_mail_fail email;
+    class off_rx_pay,off_thankyou,off_failed,off_close,on_rx_pay,on_thankyou,on_failed,on_close rxScreen;
+    class off_t_fail,on_t_fail txFailed;
+    class rev_t txNotReceived;
+    style grp_offline_teacher_records_the_payment fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;
+    style grp_revoke_same_for_online_and_offline fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;
+    style grp_online_participant_pays_with_the_email_link fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;

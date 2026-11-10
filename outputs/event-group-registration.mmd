@@ -1,0 +1,131 @@
+flowchart TD
+    flow_start(("START"))
+    rx_step1["Step 1 Personal info\n---\nprimary participant, plus the members added with + Add participant\nexample: primary + 2 members"]
+    subgraph grp_free_group_event["FREE group event"]
+        free_users[("INSERT or UPDATE users x3\n---\none row per person: primary + 2 members\nsaved by the same register call")]
+        free_p1[("INSERT P1 (primary)\n---\npayment_status empty\ntotal_amount empty, balance_due 0\nticket_count 3 (group size)\nvisible at once (is_deleted false)")]
+        free_p23[("INSERT P2, P3 (members)\n---\nprimary_participant_id = P1\npayment_status empty, no amounts\nagreement PENDING")]
+        free_no_t[("NO transaction row\n---\nnothing is written to program_participant_transaction\nnot for the primary, not for the members")]
+        free_mail_primary(["Primary email\n---\nsent at registration\npending action: the members' agreements are still PENDING"])
+        free_mail_member(["Member email (each member)\n---\npending action, always sent\nhas the link to confirm the agreement"])
+        free_thankyou["Thank you page\n---\nfree-event version: registration is successful\nTotal participants and member names, no Total row"]
+        free_member_page["Member: action required page\n---\nmember checks their details\nconfirms the agreement, then goes to Thank you\nnever sees a payment step"]
+        free_member_update[("UPDATE own row (P2 or P3)\n---\nagreement status and date, language, device info\nno payment, no transaction")]
+    end
+    paid_users[("INSERT or UPDATE users x3\n---\none contacts call for the whole group\nsaved when Continue is clicked, before any registration exists")]
+    paid_step2["Step 2 Payment details\n---\nfee level (and accommodation) for each person, discount code\nthe button reads Continue, or Submit when the group total is 0"]
+    subgraph grp_paid_group_event["PAID group event"]
+        paid_p1[("INSERT P1 (primary)\n---\npayment_status PENDING\ntotal_amount = the primary's own fee\nbalance_due = the whole group's balance\nticket_count 3, hidden until the first webhook\nNO transaction row yet")]
+        paid_p23[("INSERT P2, P3 (members)\n---\nprimary_participant_id = P1\npayment_status PENDING\ntotal_amount = own fee, balance_due empty\nhidden until the first webhook, agreement PENDING")]
+        paid_step3["Step 3 Payment\n---\nPay now sends the GROUP total to CAPS\nparticipant id = the primary's registration id\nevery Pay now click creates a new CAPS order and a new transaction\nalso opened again from the Failed page (Try again)"]
+        paid_t1[("INSERT T1 (on P1)\n---\ncreated by the payment webhook\ntotal_amount = the whole group's amount")]
+        paid_p23_visible[("UPDATE P2, P3\n---\nis_deleted false: all 3 rows become visible\nset by the first webhook\nmembers never get a transaction row")]
+        paid_close["Case 1: user closes the tab or clicks Back\n---\nnothing else runs in rx\nthe Payment step link opens step 3 again"]
+        paid_rescue[["CAPS rescue service\n---\njob re-checks orders that never finished\nolder than 1 hour, then tells BX what the gateway says"]]
+        paid_t1_failed[("UPDATE T1\n---\nPENDING -> FAILED\nwhen the gateway reports the order failed or canceled")]
+        paid_t2[("INSERT T2, then UPDATE (on P1)\n---\nPENDING -> FAILED")]
+        paid_failed["Failed page\n---\npayment failed or any other status\nhas a Try again button"]
+        paid_mail_retry(["Retry payment email (primary)\n---\nsent when the webhook reports FAILED (T1 or T2)"])
+        paid_t3[("INSERT T3, then UPDATE (on P1)\n---\nPENDING -> CONFIRMED")]
+        paid_p1_paid[("UPDATE P1\n---\nbalance_due reduced by the group amount (0 when paid in full)\npayment_status CONFIRMED (DB trigger)\nmembers' own rows are not updated by the payment")]
+        paid_mail_confirm(["Confirmation email (primary)\n---\nsent when T turns CONFIRMED\ninvoice and ticket for the primary"])
+        paid_mail_member(["Member email (each member)\n---\npending action, has the link to confirm the agreement\nsent after the webhook: on CONFIRMED (unless an earlier payment failed) and on FAILED"])
+        paid_thankyou["Thank you page\n---\npaid-event version: Thank you, your payment is successful\nTicket row, Total participants, member names, Total"]
+        paid_member_page["Member: action required page\n---\nmember confirms the agreement, then goes to Thank you\nnever sees a payment step"]
+        paid_member_update[("UPDATE own row (P2 or P3)\n---\nagreement status and date, language, device info\nno payment, no transaction")]
+    end
+    subgraph grp_special_case_paid_group_with_zero_fee["SPECIAL CASE: paid group with zero fee"]
+        zero_p1[("INSERT P1 (primary)\n---\npayment_status PENDING\ntotal_amount 0, balance_due 0\nticket_count 3, visible at once (is_deleted false)")]
+        zero_p23[("INSERT P2, P3 (members)\n---\nprimary_participant_id = P1\npayment_status PENDING, total_amount 0 (own fee)\nbalance_due empty, visible, agreement PENDING")]
+        zero_t[("INSERT T (on P1 only)\n---\nwritten by BX in the same request\ntotal_amount 0, type SALE, no payment method, no payment id\nno CAPS order, no webhook\nthe members get no transaction row")]
+        zero_p1_conf[("UPDATE P1\n---\npayment_status PENDING -> CONFIRMED\nonly the primary is updated: the members stay PENDING")]
+        zero_mail_primary(["Confirmation email (primary)\n---\nsent at registration\nnot skipped: payment_status is already CONFIRMED"])
+        zero_mail_member(["Member email (each member)\n---\npending action, has the link to confirm the agreement"])
+        zero_thankyou["Thank you page\n---\npaid-event version of the page\nshows a Total row, Total participants and names"]
+        zero_member_page["Member: action required page\n---\nmember confirms the agreement, then goes to Thank you\nnever sees a payment step"]
+        zero_member_update[("UPDATE own row (P2 or P3)\n---\nagreement status and date, language, device info\nno payment, no transaction")]
+    end
+    flow_start --> rx_step1
+    rx_step1 -->|"FREE group: Submit (bot check, register free grouped event)"| free_users
+    rx_step1 -->|"PAID group: Continue"| paid_users
+    free_users --> free_p1
+    free_p1 --> free_p23
+    free_p1 -.->|"free group: no transaction for anyone"| free_no_t
+    free_p1 --> free_mail_primary
+    free_p23 --> free_mail_member
+    free_p1 -->|"<span style='color:rgb(46,125,50);font-weight:bold'>Thank you link</span><br/>no CAPS id"| free_thankyou
+    free_mail_member -->|"<span style='color:rgb(106,27,154);font-weight:bold'>Member action link</span><br/>member clicks it"| free_member_page
+    free_member_page -->|"Continue"| free_member_update
+    paid_users --> paid_step2
+    paid_step2 ---|"<span style='visibility:hidden'>.</span>"| free_users
+    paid_step2 -->|"group total above 0: Continue, register grouped event"| paid_p1
+    paid_p1 --> paid_p23
+    paid_p1 -->|"<span style='color:rgb(21,101,192);font-weight:bold'>Payment step link</span>"| paid_step3
+    paid_step3 -->|"click 1: CAPS order, webhook created"| paid_t1
+    paid_t1 -->|"first webhook"| paid_p23_visible
+    paid_t1 -->|"gateway not finished"| paid_close
+    paid_close -.->|"<span style='color:rgb(21,101,192);font-weight:bold'>Payment step link</span><br/>step 3 opens again"| paid_step3
+    paid_t1 -.->|"stays PENDING"| paid_rescue
+    paid_rescue -->|"gateway says failed or canceled"| paid_t1_failed
+    paid_t1_failed --> paid_mail_retry
+    paid_step3 -->|"click 2: payment declined"| paid_t2
+    paid_t2 -->|"<span style='color:rgb(198,40,40);font-weight:bold'>Fail link</span>"| paid_failed
+    paid_t2 --> paid_mail_retry
+    paid_failed -.->|"<span style='color:rgb(230,81,0);font-weight:bold'>Retry link</span><br/>Try again button"| paid_step3
+    paid_step3 -->|"click 3: payment succeeds"| paid_t3
+    paid_t3 -->|"balance_due reduced"| paid_p1_paid
+    paid_t3 --> paid_mail_confirm
+    paid_t3 --> paid_mail_member
+    paid_t3 -->|"<span style='color:rgb(46,125,50);font-weight:bold'>Thank you link</span><br/>with CAPS id"| paid_thankyou
+    paid_mail_member -->|"<span style='color:rgb(106,27,154);font-weight:bold'>Member action link</span><br/>member clicks it"| paid_member_page
+    paid_member_page -->|"Continue"| paid_member_update
+    paid_step2 -->|"SPECIAL CASE, group total is 0: Submit, register grouped event"| zero_p1
+    zero_p1 --> zero_p23
+    zero_p23 -->|"total is 0: BX inserts one transaction"| zero_t
+    zero_t --> zero_p1_conf
+    zero_t --> zero_mail_primary
+    zero_t --> zero_mail_member
+    zero_p1_conf -->|"<span style='color:rgb(46,125,50);font-weight:bold'>Thank you link</span><br/>rx redirects, no gateway, no CAPS id"| zero_thankyou
+    zero_mail_member -->|"<span style='color:rgb(106,27,154);font-weight:bold'>Member action link</span><br/>member clicks it"| zero_member_page
+    zero_member_page -->|"Continue"| zero_member_update
+    linkStyle 8 stroke:#2e7d32,stroke-width:3px
+    linkStyle 9 stroke:#6a1b9a,stroke-width:3px
+    linkStyle 12 stroke:transparent,stroke-width:0px
+    linkStyle 15 stroke:#1565c0,stroke-width:3px
+    linkStyle 19 stroke:#1565c0,stroke-width:3px
+    linkStyle 24 stroke:#c62828,stroke-width:3px
+    linkStyle 26 stroke:#e65100,stroke-width:3px
+    linkStyle 31 stroke:#2e7d32,stroke-width:3px
+    linkStyle 32 stroke:#6a1b9a,stroke-width:3px
+    linkStyle 40 stroke:#2e7d32,stroke-width:3px
+    linkStyle 41 stroke:#6a1b9a,stroke-width:3px
+
+    classDef rxScreen fill:#ffcdd2,stroke:#b71c1c,stroke-width:2px;
+    classDef bxScreen fill:#e0f7fa,stroke:#006064,stroke-width:2px;
+    classDef bxService fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px;
+    classDef capsService fill:#eceff1,stroke:#37474f,stroke-width:2px;
+    classDef userRow fill:#ede7f6,stroke:#4527a0,stroke-width:2px;
+    classDef participantRow fill:#e3f2fd,stroke:#0d47a1,stroke-width:2px;
+    classDef txPending fill:#fff59d,stroke:#f9a825,stroke-width:2px;
+    classDef txProcessing fill:#b3e5fc,stroke:#0277bd,stroke-width:2px;
+    classDef txConfirmed fill:#a5d6a7,stroke:#2e7d32,stroke-width:2px;
+    classDef txFailed fill:#ef9a9a,stroke:#c62828,stroke-width:2px;
+    classDef txNotReceived fill:#ffccbc,stroke:#bf360c,stroke-width:2px;
+    classDef txNone fill:#f5f5f5,stroke:#9e9e9e,stroke-width:2px;
+    classDef email fill:#ffe0b2,stroke:#e65100,stroke-width:2px;
+    classDef startNode fill:#2e7d32,stroke:#1b5e20,stroke-width:3px,color:#fff;
+    classDef problem fill:#ffebee,stroke:#c62828,stroke-width:3px,stroke-dasharray:6 3;
+    classDef expected fill:#c8e6c9,stroke:#2e7d32,stroke-width:3px;
+    class flow_start startNode;
+    class rx_step1,free_thankyou,free_member_page,paid_step2,paid_step3,paid_close,paid_failed,paid_thankyou,paid_member_page,zero_thankyou,zero_member_page rxScreen;
+    class free_users,paid_users userRow;
+    class free_p1,free_p23,free_member_update,paid_p1,paid_p23,paid_p23_visible,paid_p1_paid,paid_member_update,zero_p1,zero_p23,zero_p1_conf,zero_member_update participantRow;
+    class free_no_t txNone;
+    class free_mail_primary,free_mail_member,paid_mail_retry,paid_mail_confirm,paid_mail_member,zero_mail_primary,zero_mail_member email;
+    class paid_t1 txPending;
+    class paid_rescue capsService;
+    class paid_t1_failed,paid_t2 txFailed;
+    class paid_t3,zero_t txConfirmed;
+    style grp_free_group_event fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;
+    style grp_paid_group_event fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;
+    style grp_special_case_paid_group_with_zero_fee fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;

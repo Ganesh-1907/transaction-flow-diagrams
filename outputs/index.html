@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transaction Flows</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { display: flex; height: 100vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+         background: #f0f2f5; overflow: hidden; }
+  .sidebar { width: 270px; min-width: 270px; background: #1a1f2e; overflow-y: auto; box-shadow: 2px 0 8px rgba(0,0,0,.3); }
+  .sidebar-header { padding: 24px 20px 18px; border-bottom: 1px solid rgba(255,255,255,.08); }
+  .sidebar-logo { font-size: 1.2em; font-weight: 800; color: #fff; }
+  .sidebar-sub { font-size: .75em; color: #8b93a7; margin-top: 6px; }
+  .group-title { font-size: .7em; letter-spacing: 1px; text-transform: uppercase; color: #8b93a7; padding: 18px 20px 6px; }
+  .nav-btn { display: block; width: 100%; text-align: left; background: none; border: none; color: #cfd4e2; padding: 10px 20px;
+             font-size: .9em; cursor: pointer; border-left: 3px solid transparent; }
+  .nav-btn:hover { background: rgba(255,255,255,.06); }
+  .nav-btn.active { background: rgba(255,255,255,.1); color: #fff; border-left-color: #4fc3f7; }
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .topbar { background: #fff; padding: 14px 24px; font-weight: 600; border-bottom: 1px solid #dde1e7; }
+  .content { flex: 1; position: relative; }
+  .welcome { padding: 40px; }
+  .welcome h2 { margin-bottom: 18px; }
+  .welcome-card { display: inline-block; background: #fff; border: 1px solid #dde1e7; border-radius: 8px; padding: 14px 18px;
+                  margin: 0 12px 12px 0; cursor: pointer; }
+  .welcome-card:hover { border-color: #4fc3f7; }
+  iframe.flow-frame { display: none; position: absolute; inset: 0; width: 100%; height: 100%; border: none; background: #fff; }
+  iframe.flow-frame.visible { display: block; }
+</style>
+</head>
+<body>
+<nav class="sidebar">
+  <div class="sidebar-header"><div class="sidebar-logo">Transaction Flows</div><div class="sidebar-sub">program_participant and program_participant_transaction rows per scenario</div></div>
+  <div class="group-title">Registration Sale</div>
+  <button class="nav-btn" data-src="registration-sale.html" onclick="showFlow('registration-sale.html', 'Adult course')">🎓 Adult course</button>
+  <button class="nav-btn" data-src="registration-deposit.html" onclick="showFlow('registration-deposit.html', 'Adult course (deposit)')">💰 Adult course (deposit)</button>
+  <div class="group-title">Additional Sale</div>
+  <button class="nav-btn" data-src="additional-sale.html" onclick="showFlow('additional-sale.html', 'Additional sale')">🧾 Additional sale</button>
+  <div class="group-title">Additional Sale (proposed)</div>
+  <button class="nav-btn" data-src="additional-sale-option-a.html" onclick="showFlow('additional-sale-option-a.html', 'Option A: fill T1, then new rows')">🅰️ Option A: fill T1, then new rows</button>
+  <button class="nav-btn" data-src="additional-sale-option-b.html" onclick="showFlow('additional-sale-option-b.html', 'Option B: T1 untouched, row per attempt')">🅱️ Option B: T1 untouched, row per attempt</button>
+  <div class="group-title">Event Registration</div>
+  <button class="nav-btn" data-src="event-registration.html" onclick="showFlow('event-registration.html', 'Single: free, paid, zero fee')">🎫 Single: free, paid, zero fee</button>
+  <button class="nav-btn" data-src="event-group-registration.html" onclick="showFlow('event-group-registration.html', 'Group: free, paid, zero fee')">👥 Group: free, paid, zero fee</button>
+</nav>
+<div class="main">
+  <div class="topbar" id="topbar-title">Select a flow</div>
+  <div class="content">
+    <div class="welcome" id="welcome"><h2>Pick a flow</h2><div class="welcome-card" onclick="showFlow('registration-sale.html', 'Adult course')">🎓 Adult course</div><div class="welcome-card" onclick="showFlow('registration-deposit.html', 'Adult course (deposit)')">💰 Adult course (deposit)</div><div class="welcome-card" onclick="showFlow('additional-sale.html', 'Additional sale')">🧾 Additional sale</div><div class="welcome-card" onclick="showFlow('additional-sale-option-a.html', 'Option A: fill T1, then new rows')">🅰️ Option A: fill T1, then new rows</div><div class="welcome-card" onclick="showFlow('additional-sale-option-b.html', 'Option B: T1 untouched, row per attempt')">🅱️ Option B: T1 untouched, row per attempt</div><div class="welcome-card" onclick="showFlow('event-registration.html', 'Single: free, paid, zero fee')">🎫 Single: free, paid, zero fee</div><div class="welcome-card" onclick="showFlow('event-group-registration.html', 'Group: free, paid, zero fee')">👥 Group: free, paid, zero fee</div></div>
+    <iframe id="frame-registration-sale.html" class="flow-frame" title="Adult course"></iframe>
+    <iframe id="frame-registration-deposit.html" class="flow-frame" title="Adult course (deposit)"></iframe>
+    <iframe id="frame-additional-sale.html" class="flow-frame" title="Additional sale"></iframe>
+    <iframe id="frame-additional-sale-option-a.html" class="flow-frame" title="Option A: fill T1, then new rows"></iframe>
+    <iframe id="frame-additional-sale-option-b.html" class="flow-frame" title="Option B: T1 untouched, row per attempt"></iframe>
+    <iframe id="frame-event-registration.html" class="flow-frame" title="Single: free, paid, zero fee"></iframe>
+    <iframe id="frame-event-group-registration.html" class="flow-frame" title="Group: free, paid, zero fee"></iframe>
+  </div>
+</div>
+<script>
+  function showFlow(src, label) {
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.src === src));
+    document.getElementById('welcome').style.display = 'none';
+    document.querySelectorAll('iframe.flow-frame').forEach(f => f.classList.remove('visible'));
+    const frame = document.getElementById('frame-' + src);
+    if (!frame.getAttribute('src')) frame.setAttribute('src', src);
+    frame.classList.add('visible');
+    document.getElementById('topbar-title').textContent = label;
+  }
+</script>
+</body>
+</html>

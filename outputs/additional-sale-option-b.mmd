@@ -1,0 +1,52 @@
+flowchart TD
+    flow_start(("START"))
+    bx_create["Teacher submits the additional sale\n---\nPayment Mode: Online"]
+    t1_new[("INSERT T1 (id 101)\n---\nprogram_participant_transaction\ncaps_transaction_id = null\npayment_transaction_id = null, pg_name = null\norganization_fee = 100.00, total_amount = 110.00")]
+    p1_new[("UPDATE P1\n---\nprogram_participant\nbalance_due = amount\ntotal_amount = total_amount + amount")]
+    mail_request(["Request email\n---\nto the participant\nthe link carries the T1 id (trxnId)"])
+    rx_pay["Participant clicks Pay now\n---\nrx passes trxnId = the T1 id to CAPS\nevery click creates a new CAPS order: C1, C2, C3 ..."]
+    hook_rule[["Webhook rule (additional sale only)\n---\n1. a row with this CAPS id exists: update it\n2. else load T1 by trxnId and insert a new row copied from T1\n3. the webhook never writes to T1"]]
+    rep[["Same CAPS id again\n---\nrepeat webhook for the same attempt\nrule 1: that row is updated, no duplicate"]]
+    t1_keep[("T1 (id 101) stays as the admin created it\n---\nnever changed by a payment\nstays PENDING even after a later attempt is paid")]
+    b1[("Attempt 1 (C1) fails: INSERT T2\n---\nid 102 (T2), copied from T1\ncaps_transaction_id = C1\npayment_transaction_id = pi_aaa, pg_name = stripe")]
+    b2[("Attempt 2 (C2) succeeds: INSERT T3\n---\nid 103 (T3), copied from T1\ncaps_transaction_id = C2\npayment_transaction_id = pi_bbb")]
+    p1_paid[("UPDATE P1\n---\nprogram_participant\nbalance_due = balance_due - amount paid\nonly once, when the paid row is CONFIRMED")]
+    mail_ok(["Success email\n---\nwith invoice\nattached to the paid row"])
+    flow_start --> bx_create
+    bx_create --> t1_new
+    t1_new --> p1_new
+    p1_new --> mail_request
+    mail_request -->|"participant clicks the link"| rx_pay
+    rx_pay -->|"CAPS order created, webhook"| hook_rule
+    hook_rule -.->|"same CAPS id again"| rep
+    hook_rule -.->|"never written"| t1_keep
+    hook_rule -->|"attempt 1: C1 not found"| b1
+    hook_rule -->|"attempt 2: C2 not found"| b2
+    b2 --> p1_paid
+    b2 --> mail_ok
+
+    classDef rxScreen fill:#ffcdd2,stroke:#b71c1c,stroke-width:2px;
+    classDef bxScreen fill:#e0f7fa,stroke:#006064,stroke-width:2px;
+    classDef bxService fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px;
+    classDef capsService fill:#eceff1,stroke:#37474f,stroke-width:2px;
+    classDef userRow fill:#ede7f6,stroke:#4527a0,stroke-width:2px;
+    classDef participantRow fill:#e3f2fd,stroke:#0d47a1,stroke-width:2px;
+    classDef txPending fill:#fff59d,stroke:#f9a825,stroke-width:2px;
+    classDef txProcessing fill:#b3e5fc,stroke:#0277bd,stroke-width:2px;
+    classDef txConfirmed fill:#a5d6a7,stroke:#2e7d32,stroke-width:2px;
+    classDef txFailed fill:#ef9a9a,stroke:#c62828,stroke-width:2px;
+    classDef txNotReceived fill:#ffccbc,stroke:#bf360c,stroke-width:2px;
+    classDef txNone fill:#f5f5f5,stroke:#9e9e9e,stroke-width:2px;
+    classDef email fill:#ffe0b2,stroke:#e65100,stroke-width:2px;
+    classDef startNode fill:#2e7d32,stroke:#1b5e20,stroke-width:3px,color:#fff;
+    classDef problem fill:#ffebee,stroke:#c62828,stroke-width:3px,stroke-dasharray:6 3;
+    classDef expected fill:#c8e6c9,stroke:#2e7d32,stroke-width:3px;
+    class flow_start startNode;
+    class bx_create bxScreen;
+    class t1_new,t1_keep txPending;
+    class p1_new,p1_paid participantRow;
+    class mail_request,mail_ok email;
+    class rx_pay rxScreen;
+    class hook_rule,rep bxService;
+    class b1 txFailed;
+    class b2 txConfirmed;

@@ -1,0 +1,458 @@
+# Transaction flow diagram. Edit this file, then run ./transaction_flow.sh
+# Same format as workflow-diagram-tool: nodes + edges. See README.md for the field list.
+# Events, single-participant registration (rx). One flow, three cases:
+#   FREE event, PAID event (total above 0), and the special case PAID event with zero fee (total is 0).
+
+workflow:
+  name: "Event Registration - Free, Paid and Paid with zero fee"
+  summary: "Free: no transaction row. Paid: the participant is saved first, then one transaction row per Pay now click, created by the payment webhook. Special case, paid with a zero total: no payment step, but BX writes a CONFIRMED transaction itself."
+
+  # Layout engine: elk puts FREE | PAID | SPECIAL CASE side by side in one row, left to right,
+  # and routes the lines around the boxes instead of through them.
+  layout: elk
+
+  # Named links: the name is shown in its colour in the Built URL box and on the arrows (link: <id>).
+  links:
+    - id: step3
+      name: "Payment step link"
+      color: "#1565c0"
+    - id: thankyou
+      name: "Thank you link"
+      color: "#2e7d32"
+    - id: fail
+      name: "Fail link"
+      color: "#c62828"
+    - id: retry
+      name: "Retry link"
+      color: "#e65100"
+
+  nodes:
+    # ---- start marker (green circle)
+    - id: flow_start
+      label: "START"
+      type: marker
+      subtype: start
+
+    # ---- step 1, the same screen for every event
+    - id: rx_step1
+      label: "Step 1 Personal info"
+      type: frontend_screen
+      subtype: rx_screen
+      context: "name, email, mobile"
+
+    # ================= FREE event =================
+    # one step: Submit saves the user and the participant in one request
+    - id: free_user
+      label: "INSERT or UPDATE user"
+      type: db_row
+      subtype: user_row
+      group: "FREE event"
+      context: "saved by Submit, inside the same register call"
+
+    - id: free_p1
+      label: "INSERT P1"
+      type: db_row
+      subtype: participant_row
+      group: "FREE event"
+      context:
+        - "payment_status empty"
+        - "total_amount and balance_due empty"
+        - "is_online_payment false"
+        - "visible at once (is_deleted false)"
+
+    # the point of the free case: nothing is written here
+    - id: free_no_t
+      label: "NO transaction row"
+      type: db_row
+      subtype: transaction_row
+      group: "FREE event"
+      state: NONE
+      context: "nothing is written to program_participant_transaction"
+
+    - id: free_mail
+      label: "Confirmation email"
+      type: notification
+      subtype: email
+      group: "FREE event"
+      context:
+        - "sent as soon as the registration is saved"
+        - "ticket generated"
+
+    - id: free_thankyou
+      label: "Thank you page"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "FREE event"
+      context:
+        - "free-event version: registration is successful"
+        - "no Total row, no receipt button"
+
+    # ================= PAID event =================
+    # ---- step 1 Continue: users table. No group box: PAID and the zero-fee special case share it
+    - id: paid_user
+      label: "INSERT or UPDATE user"
+      type: db_row
+      subtype: user_row
+      context: "saved when Continue is clicked, before any registration exists"
+
+    # ---- step 2: shared with the zero-fee special case, so it sits above both boxes
+    - id: paid_step2
+      label: "Step 2 Payment details"
+      type: frontend_screen
+      subtype: rx_screen
+      context:
+        - "fee level, accommodation, discount code, agreements"
+        - "the button reads Continue, or Submit when the total is 0"
+
+    - id: paid_p1
+      label: "INSERT P1"
+      type: db_row
+      subtype: participant_row
+      group: "PAID event"
+      context:
+        - "payment_status PENDING"
+        - "total_amount above 0, balance_due = total_amount"
+        - "is_online_payment true"
+        - "hidden until the first webhook (is_deleted)"
+        - "NO transaction row yet"
+
+    # ---- step 3: every Pay now click = one new transaction row
+    - id: paid_step3
+      label: "Step 3 Payment"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "PAID event"
+      context:
+        - "every Pay now click creates a new CAPS order and a new transaction"
+        - "also opened again from the Failed page (Try again)"
+
+    # ---- click 1: card entered, not completed, tab closed
+    - id: paid_t1
+      label: "INSERT T1"
+      type: db_row
+      subtype: transaction_row
+      group: "PAID event"
+      state: PENDING
+      context:
+        - "created by the payment webhook"
+        - "P1 becomes visible (first webhook)"
+
+    - id: paid_close
+      label: "Case 1: user closes the tab or clicks Back"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "PAID event"
+      context:
+        - "nothing else runs in rx"
+        - "the Payment step link opens step 3 again"
+
+    - id: paid_rescue
+      label: "CAPS rescue service"
+      type: backend_service
+      subtype: caps_service
+      group: "PAID event"
+      context:
+        - "job re-checks orders that never finished"
+        - "older than 1 hour, then tells BX what the gateway says"
+
+    - id: paid_t1_failed
+      label: "UPDATE T1"
+      type: db_row
+      subtype: transaction_row
+      group: "PAID event"
+      state: FAILED
+      context:
+        - "PENDING -> FAILED"
+        - "when the gateway reports the order failed or canceled"
+
+    # ---- click 2: payment declined
+    - id: paid_t2
+      label: "INSERT T2, then UPDATE"
+      type: db_row
+      subtype: transaction_row
+      group: "PAID event"
+      state: FAILED
+      context: "PENDING -> FAILED"
+
+    - id: paid_failed
+      label: "Failed page"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "PAID event"
+      context:
+        - "payment failed or any other status"
+        - "has a Try again button"
+
+    # ---- retry email: sent when the webhook reports FAILED
+    - id: paid_mail_retry
+      label: "Retry payment email"
+      type: notification
+      subtype: email
+      group: "PAID event"
+      context: "sent when the webhook reports FAILED (T1 or T2)"
+
+    # ---- click 3: payment succeeds
+    - id: paid_t3
+      label: "INSERT T3, then UPDATE"
+      type: db_row
+      subtype: transaction_row
+      group: "PAID event"
+      state: CONFIRMED
+      context: "PENDING -> CONFIRMED"
+
+    - id: paid_p1_paid
+      label: "UPDATE P1"
+      type: db_row
+      subtype: participant_row
+      group: "PAID event"
+      context:
+        - "balance_due reduced by the amount paid"
+        - "payment_status CONFIRMED (DB trigger)"
+        - "visible (is_deleted false)"
+
+    - id: paid_mail_confirm
+      label: "Confirmation email"
+      type: notification
+      subtype: email
+      group: "PAID event"
+      context:
+        - "sent when T turns CONFIRMED"
+        - "invoice generated"
+
+    - id: paid_thankyou
+      label: "Thank you page"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "PAID event"
+      context:
+        - "paid-event version: Thank you, your payment is successful"
+        - "Total row, Download receipt button if invoices are on"
+
+    # ================= SPECIAL CASE: paid event with zero fee =================
+    # no step 3, no gateway: BX writes the transaction itself
+    - id: zero_p1
+      label: "INSERT P1"
+      type: db_row
+      subtype: participant_row
+      group: "SPECIAL CASE: paid event with zero fee"
+      context:
+        - "payment_status PENDING"
+        - "total_amount 0, balance_due 0"
+        - "is_online_payment true, no payment method"
+        - "visible at once (is_deleted false)"
+
+    - id: zero_t
+      label: "INSERT T"
+      type: db_row
+      subtype: transaction_row
+      group: "SPECIAL CASE: paid event with zero fee"
+      state: CONFIRMED
+      context:
+        - "written by BX in the same request"
+        - "total_amount 0, type SALE"
+        - "no payment method, no payment id"
+        - "no CAPS order, no webhook"
+
+    - id: zero_p1_conf
+      label: "UPDATE P1"
+      type: db_row
+      subtype: participant_row
+      group: "SPECIAL CASE: paid event with zero fee"
+      context:
+        - "payment_status PENDING -> CONFIRMED"
+        - "set by BX right after the transaction is inserted"
+
+    - id: zero_mail
+      label: "Confirmation email"
+      type: notification
+      subtype: email
+      group: "SPECIAL CASE: paid event with zero fee"
+      context:
+        - "sent at registration"
+        - "not skipped: payment_status is already CONFIRMED"
+
+    - id: zero_thankyou
+      label: "Thank you page"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "SPECIAL CASE: paid event with zero fee"
+      context:
+        - "paid-event version of the page"
+        - "shows a Total row"
+
+  edges:
+    - from: flow_start
+      to: rx_step1
+    # ---- the event decides the path
+    - from: rx_step1
+      to: free_user
+      condition: "FREE event: Submit (bot check, register free single event)"
+    - from: rx_step1
+      to: paid_user
+      condition: "PAID event: Continue"
+    # ---- FREE
+    - from: free_user
+      to: free_p1
+    - from: free_p1
+      to: free_no_t
+      condition: "free event: no transaction"
+      style: dashed
+    - from: free_p1
+      to: free_mail
+    - from: free_p1
+      to: free_thankyou
+      link: thankyou
+      condition: "no CAPS id"
+    # ---- PAID
+    - from: paid_user
+      to: paid_step2
+    # layout only, not drawn: keeps the FREE box level with the PAID and SPECIAL CASE boxes
+    - from: paid_step2
+      to: free_user
+      style: hidden
+    - from: paid_step2
+      to: paid_p1
+      condition: "total above 0: Continue, register single event"
+    - from: paid_p1
+      to: paid_step3
+      link: step3
+    # click 1
+    - from: paid_step3
+      to: paid_t1
+      condition: "click 1: CAPS order, webhook created"
+    - from: paid_t1
+      to: paid_close
+      condition: "gateway not finished"
+    - from: paid_close
+      to: paid_step3
+      link: step3
+      condition: "step 3 opens again"
+      style: dashed
+    - from: paid_t1
+      to: paid_rescue
+      condition: "stays PENDING"
+      style: dashed
+    - from: paid_rescue
+      to: paid_t1_failed
+      condition: "gateway says failed or canceled"
+    - from: paid_t1_failed
+      to: paid_mail_retry
+    # click 2
+    - from: paid_step3
+      to: paid_t2
+      condition: "click 2: payment declined"
+    - from: paid_t2
+      to: paid_failed
+      link: fail
+    - from: paid_t2
+      to: paid_mail_retry
+    - from: paid_failed
+      to: paid_step3
+      link: retry
+      condition: "Try again button"
+      style: dashed
+    # click 3
+    - from: paid_step3
+      to: paid_t3
+      condition: "click 3: payment succeeds"
+    - from: paid_t3
+      to: paid_p1_paid
+      condition: "balance_due reduced"
+    - from: paid_t3
+      to: paid_mail_confirm
+    - from: paid_t3
+      to: paid_thankyou
+      link: thankyou
+      condition: "with CAPS id"
+    # ---- SPECIAL CASE: zero fee, branches off paid step 2
+    - from: paid_step2
+      to: zero_p1
+      condition: "SPECIAL CASE, total is 0: Submit, register single event"
+    - from: zero_p1
+      to: zero_t
+      condition: "BX inserts it in the same request"
+    - from: zero_t
+      to: zero_p1_conf
+    - from: zero_t
+      to: zero_mail
+    - from: zero_p1_conf
+      to: zero_thankyou
+      link: thankyou
+      condition: "rx redirects, no gateway, no CAPS id"
+
+  steps:
+    - step: "FREE, Step 1 Submit"
+      table: users
+      change: "INSERT user (or UPDATE if the email already exists)"
+    - step: "FREE, Step 1 Submit"
+      table: program_participant
+      change: "INSERT P1, payment_status empty, no amounts"
+    - step: "FREE, Step 1 Submit"
+      table: program_participant_transaction
+      change: "nothing: a free event never creates a transaction row"
+    - step: "PAID or ZERO FEE, Step 1 Continue"
+      table: users
+      change: "INSERT user (or UPDATE if the email already exists)"
+    - step: "PAID, Step 2 Continue"
+      table: program_participant
+      change: "INSERT P1, payment_status PENDING, total_amount and balance_due set"
+    - step: "PAID, Step 3 click 1"
+      table: program_participant_transaction
+      change: "INSERT T1 PENDING (webhook), then FAILED (rescue service)"
+    - step: "PAID, Step 3 click 2"
+      table: program_participant_transaction
+      change: "INSERT T2 PENDING (webhook), then FAILED (declined)"
+    - step: "PAID, Step 3 click 3"
+      table: program_participant_transaction
+      change: "INSERT T3 PENDING (webhook), then CONFIRMED"
+    - step: "PAID, Step 3 click 3"
+      table: program_participant
+      change: "UPDATE P1, balance_due reduced, payment_status CONFIRMED"
+    - step: "ZERO FEE, Step 2 Submit"
+      table: program_participant
+      change: "INSERT P1, payment_status PENDING, total_amount 0, balance_due 0"
+    - step: "ZERO FEE, Step 2 Submit"
+      table: program_participant_transaction
+      change: "INSERT T CONFIRMED, total_amount 0, written by BX"
+    - step: "ZERO FEE, Step 2 Submit"
+      table: program_participant
+      change: "UPDATE P1, payment_status CONFIRMED"
+
+  points:
+    - "FREE: one step. Submit saves the user and the participant in one request. There is no payment, no CAPS order and no payment webhook, so no program_participant_transaction row is created."
+    - "FREE: the participant is visible straight away and the confirmation email goes out at registration. Free is decided by the event (is_paid_program is false), not by the amount."
+    - "PAID: Step 1 writes the users row. Step 2 inserts the program_participant row. No transaction row exists yet."
+    - "PAID: every Pay now click in step 3 creates one more transaction row. The payment webhook inserts it, one row per CAPS order."
+    - "PAID: T1 abandoned is PENDING, later FAILED by the rescue service. T2 declined is FAILED, the retry email is sent and the Failed page offers Try again. T3 paid is CONFIRMED."
+    - "PAID: if the bank is still processing, T becomes PROCESSING, the thank-you page says processing and no email is sent yet. A CONFIRMED transaction is never changed back by a later webhook."
+    - "SPECIAL CASE, zero fee: the event is paid but the payable total is 0 (fee level price 0, or a discount code brings it to 0). Steps 1 and 2 are the same as a paid event, but the Step 2 button reads Submit and there is no step 3."
+    - "SPECIAL CASE: BX writes the CONFIRMED transaction itself, in the same request that inserts P1. rx makes no CAPS call. T has total_amount 0, no payment method and no payment id."
+    - "Compare: a free event has no transaction row. A paid event gets its rows later, from a webhook. A zero-fee event gets its row at registration, from BX."
+
+  boxes:
+    - title: "Built URL"
+      lines:
+        - link: step3
+          text: "PAID: rx builds it after step 2. Any link with ?ref= opens step 3:"
+          code: "<rx origin>/<locale>/programs/<program_id>?ref=<registration_id>"
+        - "registration_id is the participant's registration UUID, returned by the register call. rx also sends it to CAPS as participant_id when Pay now is clicked."
+        - link: thankyou
+          text: "PAID: after the gateway, success, processing or pay later goes to:"
+          code: "<rx origin>/<locale>/programs/<program_id>/thankyou?ref=<registration_id>&caps_transaction_id=<CAPS id>"
+        - link: thankyou
+          text: "FREE and ZERO FEE: Submit goes straight to the thank-you page. There is no payment, so there is no CAPS id:"
+          code: "<rx origin>/<locale>/programs/<program_id>/thankyou?ref=<registration_id>"
+        - link: fail
+          text: "PAID: failed, or any other status, goes to:"
+          code: "<rx origin>/<locale>/programs/<program_id>/failed?ref=<registration_id>&caps_transaction_id=<CAPS id>"
+        - link: retry
+          text: "PAID: the Try again button on the failed page opens:"
+          code: "<rx origin>/<locale>/programs/<program_id>/retry-payment?ref=<registration_id>&caps_transaction_id=<CAPS id>"
+        - "The links never change. If the payment is already finished, opening the step 3 link goes to the thank-you page."
+
+  notes:
+    - "Single-participant registration. Group and ticketed events have their own pages and register calls, with the same free / paid / zero-fee rules (in a group registration only the primary participant gets the zero-fee transaction)."
+    - "Code-derived (rx, bx-be-nestjs and caps-be on origin/dev), not run on a live system."
+    - "Not in the repositories, so assumed: the database trigger that sets payment_status CONFIRMED after a webhook, and any trigger that changes registration_transaction_status. P1 stays hidden until the first webhook only when the tenant does not show unpaid registrations. The rescue service FAILs an abandoned order only if the gateway reports it as failed or canceled."
+    - "Not checked: whether the zero-fee Thank you page shows the free wording or the 'payment is successful' wording (it depends on total_amount being exactly 0)."
+    - "Possible gap, not confirmed in practice: when a registration is saved again with an existing registration id, the update path does not create the zero-fee transaction."

@@ -1,0 +1,102 @@
+flowchart TD
+    flow_start(("START"))
+    rx_step1["Step 1 Personal info\n---\nname, email, mobile"]
+    subgraph grp_free_event["FREE event"]
+        free_user[("INSERT or UPDATE user\n---\nsaved by Submit, inside the same register call")]
+        free_p1[("INSERT P1\n---\npayment_status empty\ntotal_amount and balance_due empty\nis_online_payment false\nvisible at once (is_deleted false)")]
+        free_no_t[("NO transaction row\n---\nnothing is written to program_participant_transaction")]
+        free_mail(["Confirmation email\n---\nsent as soon as the registration is saved\nticket generated"])
+        free_thankyou["Thank you page\n---\nfree-event version: registration is successful\nno Total row, no receipt button"]
+    end
+    paid_user[("INSERT or UPDATE user\n---\nsaved when Continue is clicked, before any registration exists")]
+    paid_step2["Step 2 Payment details\n---\nfee level, accommodation, discount code, agreements\nthe button reads Continue, or Submit when the total is 0"]
+    subgraph grp_paid_event["PAID event"]
+        paid_p1[("INSERT P1\n---\npayment_status PENDING\ntotal_amount above 0, balance_due = total_amount\nis_online_payment true\nhidden until the first webhook (is_deleted)\nNO transaction row yet")]
+        paid_step3["Step 3 Payment\n---\nevery Pay now click creates a new CAPS order and a new transaction\nalso opened again from the Failed page (Try again)"]
+        paid_t1[("INSERT T1\n---\ncreated by the payment webhook\nP1 becomes visible (first webhook)")]
+        paid_close["Case 1: user closes the tab or clicks Back\n---\nnothing else runs in rx\nthe Payment step link opens step 3 again"]
+        paid_rescue[["CAPS rescue service\n---\njob re-checks orders that never finished\nolder than 1 hour, then tells BX what the gateway says"]]
+        paid_t1_failed[("UPDATE T1\n---\nPENDING -> FAILED\nwhen the gateway reports the order failed or canceled")]
+        paid_t2[("INSERT T2, then UPDATE\n---\nPENDING -> FAILED")]
+        paid_failed["Failed page\n---\npayment failed or any other status\nhas a Try again button"]
+        paid_mail_retry(["Retry payment email\n---\nsent when the webhook reports FAILED (T1 or T2)"])
+        paid_t3[("INSERT T3, then UPDATE\n---\nPENDING -> CONFIRMED")]
+        paid_p1_paid[("UPDATE P1\n---\nbalance_due reduced by the amount paid\npayment_status CONFIRMED (DB trigger)\nvisible (is_deleted false)")]
+        paid_mail_confirm(["Confirmation email\n---\nsent when T turns CONFIRMED\ninvoice generated"])
+        paid_thankyou["Thank you page\n---\npaid-event version: Thank you, your payment is successful\nTotal row, Download receipt button if invoices are on"]
+    end
+    subgraph grp_special_case_paid_event_with_zero_fee["SPECIAL CASE: paid event with zero fee"]
+        zero_p1[("INSERT P1\n---\npayment_status PENDING\ntotal_amount 0, balance_due 0\nis_online_payment true, no payment method\nvisible at once (is_deleted false)")]
+        zero_t[("INSERT T\n---\nwritten by BX in the same request\ntotal_amount 0, type SALE\nno payment method, no payment id\nno CAPS order, no webhook")]
+        zero_p1_conf[("UPDATE P1\n---\npayment_status PENDING -> CONFIRMED\nset by BX right after the transaction is inserted")]
+        zero_mail(["Confirmation email\n---\nsent at registration\nnot skipped: payment_status is already CONFIRMED"])
+        zero_thankyou["Thank you page\n---\npaid-event version of the page\nshows a Total row"]
+    end
+    flow_start --> rx_step1
+    rx_step1 -->|"FREE event: Submit (bot check, register free single event)"| free_user
+    rx_step1 -->|"PAID event: Continue"| paid_user
+    free_user --> free_p1
+    free_p1 -.->|"free event: no transaction"| free_no_t
+    free_p1 --> free_mail
+    free_p1 -->|"<span style='color:rgb(46,125,50);font-weight:bold'>Thank you link</span><br/>no CAPS id"| free_thankyou
+    paid_user --> paid_step2
+    paid_step2 ---|"<span style='visibility:hidden'>.</span>"| free_user
+    paid_step2 -->|"total above 0: Continue, register single event"| paid_p1
+    paid_p1 -->|"<span style='color:rgb(21,101,192);font-weight:bold'>Payment step link</span>"| paid_step3
+    paid_step3 -->|"click 1: CAPS order, webhook created"| paid_t1
+    paid_t1 -->|"gateway not finished"| paid_close
+    paid_close -.->|"<span style='color:rgb(21,101,192);font-weight:bold'>Payment step link</span><br/>step 3 opens again"| paid_step3
+    paid_t1 -.->|"stays PENDING"| paid_rescue
+    paid_rescue -->|"gateway says failed or canceled"| paid_t1_failed
+    paid_t1_failed --> paid_mail_retry
+    paid_step3 -->|"click 2: payment declined"| paid_t2
+    paid_t2 -->|"<span style='color:rgb(198,40,40);font-weight:bold'>Fail link</span>"| paid_failed
+    paid_t2 --> paid_mail_retry
+    paid_failed -.->|"<span style='color:rgb(230,81,0);font-weight:bold'>Retry link</span><br/>Try again button"| paid_step3
+    paid_step3 -->|"click 3: payment succeeds"| paid_t3
+    paid_t3 -->|"balance_due reduced"| paid_p1_paid
+    paid_t3 --> paid_mail_confirm
+    paid_t3 -->|"<span style='color:rgb(46,125,50);font-weight:bold'>Thank you link</span><br/>with CAPS id"| paid_thankyou
+    paid_step2 -->|"SPECIAL CASE, total is 0: Submit, register single event"| zero_p1
+    zero_p1 -->|"BX inserts it in the same request"| zero_t
+    zero_t --> zero_p1_conf
+    zero_t --> zero_mail
+    zero_p1_conf -->|"<span style='color:rgb(46,125,50);font-weight:bold'>Thank you link</span><br/>rx redirects, no gateway, no CAPS id"| zero_thankyou
+    linkStyle 6 stroke:#2e7d32,stroke-width:3px
+    linkStyle 8 stroke:transparent,stroke-width:0px
+    linkStyle 10 stroke:#1565c0,stroke-width:3px
+    linkStyle 13 stroke:#1565c0,stroke-width:3px
+    linkStyle 18 stroke:#c62828,stroke-width:3px
+    linkStyle 20 stroke:#e65100,stroke-width:3px
+    linkStyle 24 stroke:#2e7d32,stroke-width:3px
+    linkStyle 29 stroke:#2e7d32,stroke-width:3px
+
+    classDef rxScreen fill:#ffcdd2,stroke:#b71c1c,stroke-width:2px;
+    classDef bxScreen fill:#e0f7fa,stroke:#006064,stroke-width:2px;
+    classDef bxService fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px;
+    classDef capsService fill:#eceff1,stroke:#37474f,stroke-width:2px;
+    classDef userRow fill:#ede7f6,stroke:#4527a0,stroke-width:2px;
+    classDef participantRow fill:#e3f2fd,stroke:#0d47a1,stroke-width:2px;
+    classDef txPending fill:#fff59d,stroke:#f9a825,stroke-width:2px;
+    classDef txProcessing fill:#b3e5fc,stroke:#0277bd,stroke-width:2px;
+    classDef txConfirmed fill:#a5d6a7,stroke:#2e7d32,stroke-width:2px;
+    classDef txFailed fill:#ef9a9a,stroke:#c62828,stroke-width:2px;
+    classDef txNotReceived fill:#ffccbc,stroke:#bf360c,stroke-width:2px;
+    classDef txNone fill:#f5f5f5,stroke:#9e9e9e,stroke-width:2px;
+    classDef email fill:#ffe0b2,stroke:#e65100,stroke-width:2px;
+    classDef startNode fill:#2e7d32,stroke:#1b5e20,stroke-width:3px,color:#fff;
+    classDef problem fill:#ffebee,stroke:#c62828,stroke-width:3px,stroke-dasharray:6 3;
+    classDef expected fill:#c8e6c9,stroke:#2e7d32,stroke-width:3px;
+    class flow_start startNode;
+    class rx_step1,free_thankyou,paid_step2,paid_step3,paid_close,paid_failed,paid_thankyou,zero_thankyou rxScreen;
+    class free_user,paid_user userRow;
+    class free_p1,paid_p1,paid_p1_paid,zero_p1,zero_p1_conf participantRow;
+    class free_no_t txNone;
+    class free_mail,paid_mail_retry,paid_mail_confirm,zero_mail email;
+    class paid_t1 txPending;
+    class paid_rescue capsService;
+    class paid_t1_failed,paid_t2 txFailed;
+    class paid_t3,zero_t txConfirmed;
+    style grp_free_event fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;
+    style grp_paid_event fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;
+    style grp_special_case_paid_event_with_zero_fee fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;

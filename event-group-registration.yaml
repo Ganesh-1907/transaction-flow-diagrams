@@ -1,0 +1,636 @@
+# Transaction flow diagram. Edit this file, then run ./transaction_flow.sh
+# Same format as workflow-diagram-tool: nodes + edges. See README.md for the field list.
+# Events, GROUP registration (rx): a primary participant plus the members they add.
+# Example used here: a group of 3 = the primary (P1) and 2 members (P2, P3).
+# One flow, three cases: FREE group, PAID group (total above 0), special case PAID group with zero fee.
+
+workflow:
+  name: "Group Event Registration - Free, Paid and Paid with zero fee"
+  summary: "Group of 3 (primary + 2 members): every person gets a users row and a program_participant row, but only the primary can get a program_participant_transaction row. Free: none. Paid: one, created by the payment webhook with the whole group's amount. Special case, paid with a zero total: one CONFIRMED row written by BX."
+
+  # Layout engine: elk puts FREE | PAID | SPECIAL CASE side by side in one row and routes the lines around the boxes.
+  layout: elk
+
+  # Named links: the name is shown in its colour in the Built URL box and on the arrows (link: <id>).
+  links:
+    - id: step3
+      name: "Payment step link"
+      color: "#1565c0"
+    - id: thankyou
+      name: "Thank you link"
+      color: "#2e7d32"
+    - id: fail
+      name: "Fail link"
+      color: "#c62828"
+    - id: retry
+      name: "Retry link"
+      color: "#e65100"
+    - id: member
+      name: "Member action link"
+      color: "#6a1b9a"
+
+  nodes:
+    # ---- start marker (green circle)
+    - id: flow_start
+      label: "START"
+      type: marker
+      subtype: start
+
+    # ---- step 1, the same screen for every group event
+    - id: rx_step1
+      label: "Step 1 Personal info"
+      type: frontend_screen
+      subtype: rx_screen
+      context:
+        - "primary participant, plus the members added with + Add participant"
+        - "example: primary + 2 members"
+
+    # ================= FREE group =================
+    # one step: Submit saves everybody in one request
+    - id: free_users
+      label: "INSERT or UPDATE users x3"
+      type: db_row
+      subtype: user_row
+      group: "FREE group event"
+      context:
+        - "one row per person: primary + 2 members"
+        - "saved by the same register call"
+
+    - id: free_p1
+      label: "INSERT P1 (primary)"
+      type: db_row
+      subtype: participant_row
+      group: "FREE group event"
+      context:
+        - "payment_status empty"
+        - "total_amount empty, balance_due 0"
+        - "ticket_count 3 (group size)"
+        - "visible at once (is_deleted false)"
+
+    - id: free_p23
+      label: "INSERT P2, P3 (members)"
+      type: db_row
+      subtype: participant_row
+      group: "FREE group event"
+      context:
+        - "primary_participant_id = P1"
+        - "payment_status empty, no amounts"
+        - "agreement PENDING"
+
+    # the point of the free case: nothing is written here, for anybody
+    - id: free_no_t
+      label: "NO transaction row"
+      type: db_row
+      subtype: transaction_row
+      group: "FREE group event"
+      state: NONE
+      context:
+        - "nothing is written to program_participant_transaction"
+        - "not for the primary, not for the members"
+
+    - id: free_mail_primary
+      label: "Primary email"
+      type: notification
+      subtype: email
+      group: "FREE group event"
+      context:
+        - "sent at registration"
+        - "pending action: the members' agreements are still PENDING"
+
+    - id: free_mail_member
+      label: "Member email (each member)"
+      type: notification
+      subtype: email
+      group: "FREE group event"
+      context:
+        - "pending action, always sent"
+        - "has the link to confirm the agreement"
+
+    - id: free_thankyou
+      label: "Thank you page"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "FREE group event"
+      context:
+        - "free-event version: registration is successful"
+        - "Total participants and member names, no Total row"
+
+    - id: free_member_page
+      label: "Member: action required page"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "FREE group event"
+      context:
+        - "member checks their details"
+        - "confirms the agreement, then goes to Thank you"
+        - "never sees a payment step"
+
+    - id: free_member_update
+      label: "UPDATE own row (P2 or P3)"
+      type: db_row
+      subtype: participant_row
+      group: "FREE group event"
+      context:
+        - "agreement status and date, language, device info"
+        - "no payment, no transaction"
+
+    # ================= PAID group =================
+    # ---- step 1 Continue: users table. No group box: PAID and the zero-fee special case share it
+    - id: paid_users
+      label: "INSERT or UPDATE users x3"
+      type: db_row
+      subtype: user_row
+      context:
+        - "one contacts call for the whole group"
+        - "saved when Continue is clicked, before any registration exists"
+
+    # ---- step 2: shared with the zero-fee special case, so it sits above both boxes
+    - id: paid_step2
+      label: "Step 2 Payment details"
+      type: frontend_screen
+      subtype: rx_screen
+      context:
+        - "fee level (and accommodation) for each person, discount code"
+        - "the button reads Continue, or Submit when the group total is 0"
+
+    - id: paid_p1
+      label: "INSERT P1 (primary)"
+      type: db_row
+      subtype: participant_row
+      group: "PAID group event"
+      context:
+        - "payment_status PENDING"
+        - "total_amount = the primary's own fee"
+        - "balance_due = the whole group's balance"
+        - "ticket_count 3, hidden until the first webhook"
+        - "NO transaction row yet"
+
+    - id: paid_p23
+      label: "INSERT P2, P3 (members)"
+      type: db_row
+      subtype: participant_row
+      group: "PAID group event"
+      context:
+        - "primary_participant_id = P1"
+        - "payment_status PENDING"
+        - "total_amount = own fee, balance_due empty"
+        - "hidden until the first webhook, agreement PENDING"
+
+    # ---- step 3: every Pay now click = one new transaction row, on the primary
+    - id: paid_step3
+      label: "Step 3 Payment"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "PAID group event"
+      context:
+        - "Pay now sends the GROUP total to CAPS"
+        - "participant id = the primary's registration id"
+        - "every Pay now click creates a new CAPS order and a new transaction"
+        - "also opened again from the Failed page (Try again)"
+
+    # ---- click 1: card entered, not completed, tab closed
+    - id: paid_t1
+      label: "INSERT T1 (on P1)"
+      type: db_row
+      subtype: transaction_row
+      group: "PAID group event"
+      state: PENDING
+      context:
+        - "created by the payment webhook"
+        - "total_amount = the whole group's amount"
+
+    - id: paid_p23_visible
+      label: "UPDATE P2, P3"
+      type: db_row
+      subtype: participant_row
+      group: "PAID group event"
+      context:
+        - "is_deleted false: all 3 rows become visible"
+        - "set by the first webhook"
+        - "members never get a transaction row"
+
+    - id: paid_close
+      label: "Case 1: user closes the tab or clicks Back"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "PAID group event"
+      context:
+        - "nothing else runs in rx"
+        - "the Payment step link opens step 3 again"
+
+    - id: paid_rescue
+      label: "CAPS rescue service"
+      type: backend_service
+      subtype: caps_service
+      group: "PAID group event"
+      context:
+        - "job re-checks orders that never finished"
+        - "older than 1 hour, then tells BX what the gateway says"
+
+    - id: paid_t1_failed
+      label: "UPDATE T1"
+      type: db_row
+      subtype: transaction_row
+      group: "PAID group event"
+      state: FAILED
+      context:
+        - "PENDING -> FAILED"
+        - "when the gateway reports the order failed or canceled"
+
+    # ---- click 2: payment declined
+    - id: paid_t2
+      label: "INSERT T2, then UPDATE (on P1)"
+      type: db_row
+      subtype: transaction_row
+      group: "PAID group event"
+      state: FAILED
+      context: "PENDING -> FAILED"
+
+    - id: paid_failed
+      label: "Failed page"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "PAID group event"
+      context:
+        - "payment failed or any other status"
+        - "has a Try again button"
+
+    # ---- retry email: sent to the primary when the webhook reports FAILED
+    - id: paid_mail_retry
+      label: "Retry payment email (primary)"
+      type: notification
+      subtype: email
+      group: "PAID group event"
+      context: "sent when the webhook reports FAILED (T1 or T2)"
+
+    # ---- click 3: payment succeeds
+    - id: paid_t3
+      label: "INSERT T3, then UPDATE (on P1)"
+      type: db_row
+      subtype: transaction_row
+      group: "PAID group event"
+      state: CONFIRMED
+      context: "PENDING -> CONFIRMED"
+
+    - id: paid_p1_paid
+      label: "UPDATE P1"
+      type: db_row
+      subtype: participant_row
+      group: "PAID group event"
+      context:
+        - "balance_due reduced by the group amount (0 when paid in full)"
+        - "payment_status CONFIRMED (DB trigger)"
+        - "members' own rows are not updated by the payment"
+
+    - id: paid_mail_confirm
+      label: "Confirmation email (primary)"
+      type: notification
+      subtype: email
+      group: "PAID group event"
+      context:
+        - "sent when T turns CONFIRMED"
+        - "invoice and ticket for the primary"
+
+    - id: paid_mail_member
+      label: "Member email (each member)"
+      type: notification
+      subtype: email
+      group: "PAID group event"
+      context:
+        - "pending action, has the link to confirm the agreement"
+        - "sent after the webhook: on CONFIRMED (unless an earlier payment failed) and on FAILED"
+
+    - id: paid_thankyou
+      label: "Thank you page"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "PAID group event"
+      context:
+        - "paid-event version: Thank you, your payment is successful"
+        - "Ticket row, Total participants, member names, Total"
+
+    - id: paid_member_page
+      label: "Member: action required page"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "PAID group event"
+      context:
+        - "member confirms the agreement, then goes to Thank you"
+        - "never sees a payment step"
+
+    - id: paid_member_update
+      label: "UPDATE own row (P2 or P3)"
+      type: db_row
+      subtype: participant_row
+      group: "PAID group event"
+      context:
+        - "agreement status and date, language, device info"
+        - "no payment, no transaction"
+
+    # ================= SPECIAL CASE: paid group with zero fee =================
+    # no step 3, no gateway: BX writes the one transaction itself, on the primary
+    - id: zero_p1
+      label: "INSERT P1 (primary)"
+      type: db_row
+      subtype: participant_row
+      group: "SPECIAL CASE: paid group with zero fee"
+      context:
+        - "payment_status PENDING"
+        - "total_amount 0, balance_due 0"
+        - "ticket_count 3, visible at once (is_deleted false)"
+
+    - id: zero_p23
+      label: "INSERT P2, P3 (members)"
+      type: db_row
+      subtype: participant_row
+      group: "SPECIAL CASE: paid group with zero fee"
+      context:
+        - "primary_participant_id = P1"
+        - "payment_status PENDING, total_amount 0 (own fee)"
+        - "balance_due empty, visible, agreement PENDING"
+
+    - id: zero_t
+      label: "INSERT T (on P1 only)"
+      type: db_row
+      subtype: transaction_row
+      group: "SPECIAL CASE: paid group with zero fee"
+      state: CONFIRMED
+      context:
+        - "written by BX in the same request"
+        - "total_amount 0, type SALE, no payment method, no payment id"
+        - "no CAPS order, no webhook"
+        - "the members get no transaction row"
+
+    - id: zero_p1_conf
+      label: "UPDATE P1"
+      type: db_row
+      subtype: participant_row
+      group: "SPECIAL CASE: paid group with zero fee"
+      context:
+        - "payment_status PENDING -> CONFIRMED"
+        - "only the primary is updated: the members stay PENDING"
+
+    - id: zero_mail_primary
+      label: "Confirmation email (primary)"
+      type: notification
+      subtype: email
+      group: "SPECIAL CASE: paid group with zero fee"
+      context:
+        - "sent at registration"
+        - "not skipped: payment_status is already CONFIRMED"
+
+    - id: zero_mail_member
+      label: "Member email (each member)"
+      type: notification
+      subtype: email
+      group: "SPECIAL CASE: paid group with zero fee"
+      context: "pending action, has the link to confirm the agreement"
+
+    - id: zero_thankyou
+      label: "Thank you page"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "SPECIAL CASE: paid group with zero fee"
+      context:
+        - "paid-event version of the page"
+        - "shows a Total row, Total participants and names"
+
+    - id: zero_member_page
+      label: "Member: action required page"
+      type: frontend_screen
+      subtype: rx_screen
+      group: "SPECIAL CASE: paid group with zero fee"
+      context:
+        - "member confirms the agreement, then goes to Thank you"
+        - "never sees a payment step"
+
+    - id: zero_member_update
+      label: "UPDATE own row (P2 or P3)"
+      type: db_row
+      subtype: participant_row
+      group: "SPECIAL CASE: paid group with zero fee"
+      context:
+        - "agreement status and date, language, device info"
+        - "no payment, no transaction"
+
+  edges:
+    - from: flow_start
+      to: rx_step1
+    # ---- the event decides the path
+    - from: rx_step1
+      to: free_users
+      condition: "FREE group: Submit (bot check, register free grouped event)"
+    - from: rx_step1
+      to: paid_users
+      condition: "PAID group: Continue"
+    # ---- FREE group
+    - from: free_users
+      to: free_p1
+    - from: free_p1
+      to: free_p23
+    - from: free_p1
+      to: free_no_t
+      condition: "free group: no transaction for anyone"
+      style: dashed
+    - from: free_p1
+      to: free_mail_primary
+    - from: free_p23
+      to: free_mail_member
+    - from: free_p1
+      to: free_thankyou
+      link: thankyou
+      condition: "no CAPS id"
+    - from: free_mail_member
+      to: free_member_page
+      link: member
+      condition: "member clicks it"
+    - from: free_member_page
+      to: free_member_update
+      condition: "Continue"
+    # ---- PAID group
+    - from: paid_users
+      to: paid_step2
+    # layout only, not drawn: keeps the FREE box level with the PAID and SPECIAL CASE boxes
+    - from: paid_step2
+      to: free_users
+      style: hidden
+    - from: paid_step2
+      to: paid_p1
+      condition: "group total above 0: Continue, register grouped event"
+    - from: paid_p1
+      to: paid_p23
+    - from: paid_p1
+      to: paid_step3
+      link: step3
+    # click 1
+    - from: paid_step3
+      to: paid_t1
+      condition: "click 1: CAPS order, webhook created"
+    - from: paid_t1
+      to: paid_p23_visible
+      condition: "first webhook"
+    - from: paid_t1
+      to: paid_close
+      condition: "gateway not finished"
+    - from: paid_close
+      to: paid_step3
+      link: step3
+      condition: "step 3 opens again"
+      style: dashed
+    - from: paid_t1
+      to: paid_rescue
+      condition: "stays PENDING"
+      style: dashed
+    - from: paid_rescue
+      to: paid_t1_failed
+      condition: "gateway says failed or canceled"
+    - from: paid_t1_failed
+      to: paid_mail_retry
+    # click 2
+    - from: paid_step3
+      to: paid_t2
+      condition: "click 2: payment declined"
+    - from: paid_t2
+      to: paid_failed
+      link: fail
+    - from: paid_t2
+      to: paid_mail_retry
+    - from: paid_failed
+      to: paid_step3
+      link: retry
+      condition: "Try again button"
+      style: dashed
+    # click 3
+    - from: paid_step3
+      to: paid_t3
+      condition: "click 3: payment succeeds"
+    - from: paid_t3
+      to: paid_p1_paid
+      condition: "balance_due reduced"
+    - from: paid_t3
+      to: paid_mail_confirm
+    - from: paid_t3
+      to: paid_mail_member
+    - from: paid_t3
+      to: paid_thankyou
+      link: thankyou
+      condition: "with CAPS id"
+    - from: paid_mail_member
+      to: paid_member_page
+      link: member
+      condition: "member clicks it"
+    - from: paid_member_page
+      to: paid_member_update
+      condition: "Continue"
+    # ---- SPECIAL CASE: zero fee, branches off paid step 2
+    - from: paid_step2
+      to: zero_p1
+      condition: "SPECIAL CASE, group total is 0: Submit, register grouped event"
+    - from: zero_p1
+      to: zero_p23
+    - from: zero_p23
+      to: zero_t
+      condition: "total is 0: BX inserts one transaction"
+    - from: zero_t
+      to: zero_p1_conf
+    - from: zero_t
+      to: zero_mail_primary
+    - from: zero_t
+      to: zero_mail_member
+    - from: zero_p1_conf
+      to: zero_thankyou
+      link: thankyou
+      condition: "rx redirects, no gateway, no CAPS id"
+    - from: zero_mail_member
+      to: zero_member_page
+      link: member
+      condition: "member clicks it"
+    - from: zero_member_page
+      to: zero_member_update
+      condition: "Continue"
+
+  steps:
+    - step: "FREE, Step 1 Submit"
+      table: users
+      change: "INSERT or UPDATE 3 users (primary + 2 members), in the same register call"
+    - step: "FREE, Step 1 Submit"
+      table: program_participant
+      change: "INSERT P1 (ticket_count 3, balance_due 0) and P2, P3 (primary_participant_id = P1, agreement PENDING). payment_status empty, no amounts"
+    - step: "FREE, Step 1 Submit"
+      table: program_participant_transaction
+      change: "nothing: a free group never creates a transaction row"
+    - step: "PAID or ZERO FEE, Step 1 Continue"
+      table: users
+      change: "one contacts call: INSERT or UPDATE 3 users"
+    - step: "PAID, Step 2 Continue"
+      table: program_participant
+      change: "INSERT P1 PENDING (total_amount own fee, balance_due whole group) and P2, P3 PENDING (own fee, no balance_due). All 3 hidden"
+    - step: "PAID, Step 3 click 1"
+      table: program_participant_transaction
+      change: "INSERT T1 PENDING on P1 only (webhook, whole group amount), then FAILED (rescue service)"
+    - step: "PAID, first webhook"
+      table: program_participant
+      change: "UPDATE P1, P2, P3: all 3 rows become visible (is_deleted false)"
+    - step: "PAID, Step 3 click 2"
+      table: program_participant_transaction
+      change: "INSERT T2 PENDING on P1 (webhook), then FAILED (declined)"
+    - step: "PAID, Step 3 click 3"
+      table: program_participant_transaction
+      change: "INSERT T3 PENDING on P1 (webhook), then CONFIRMED"
+    - step: "PAID, Step 3 click 3"
+      table: program_participant
+      change: "UPDATE P1, balance_due reduced, payment_status CONFIRMED. P2, P3 are not updated by the payment"
+    - step: "PAID, member opens the Member action link"
+      table: program_participant
+      change: "UPDATE own row (P2 or P3): agreement status and date, language, device info"
+    - step: "ZERO FEE, Step 2 Submit"
+      table: program_participant
+      change: "INSERT P1 (total_amount 0, balance_due 0) and P2, P3 (own fee 0), all PENDING and visible"
+    - step: "ZERO FEE, Step 2 Submit"
+      table: program_participant_transaction
+      change: "INSERT ONE T CONFIRMED, total_amount 0, on P1 only, written by BX"
+    - step: "ZERO FEE, Step 2 Submit"
+      table: program_participant
+      change: "UPDATE P1, payment_status CONFIRMED. P2, P3 stay PENDING"
+
+  points:
+    - "Group of 3 in this example: the primary (P1) and 2 members (P2, P3). Each person gets a users row and a program_participant row. The members point at the primary (primary_participant_id)."
+    - "Only the primary can ever get a program_participant_transaction row. The payment is made for the whole group under the primary's registration id."
+    - "FREE: one step, one call for all 3 people. No payment, no CAPS order, no webhook, so no transaction row for anyone."
+    - "PAID: the 3 rows are saved before payment and stay hidden until the first webhook. Each member's total_amount is their own fee. The primary's balance_due is the whole group's balance."
+    - "PAID: Pay now sends the group total. Every click creates one more transaction row, on the primary only, with the whole group's amount. T1 abandoned is PENDING, later FAILED by the rescue service. T2 declined is FAILED. T3 paid is CONFIRMED."
+    - "PAID: when T is CONFIRMED the primary's balance_due is reduced (0 when the group paid in full). The members' own rows are not changed by the payment."
+    - "SPECIAL CASE, zero fee: the group total is 0 (fee level price 0, or a discount code brings it to 0). Steps 1 and 2 are the same as a paid group, but the Step 2 button reads Submit and there is no step 3."
+    - "SPECIAL CASE: BX writes ONE CONFIRMED transaction, on the primary only, in the same request that inserts the 3 participants. Only the primary is set to CONFIRMED. The members stay PENDING."
+    - "Members: each gets a pending-action email with the Member action link. They confirm their agreement on the action-required page. That updates only their own row. They are never asked to pay."
+
+  boxes:
+    - title: "Built URL"
+      lines:
+        - link: step3
+          text: "PAID: rx builds it after step 2. Any link with ?ref= opens step 3:"
+          code: "<rx origin>/<locale>/programs/<program_id>?ref=<registration_id>"
+        - "registration_id is the primary's registration UUID, returned by the register call. rx sends it to CAPS as participant_id, with the group total as the amount."
+        - link: thankyou
+          text: "PAID: after the gateway, success, processing or pay later goes to:"
+          code: "<rx origin>/<locale>/programs/<program_id>/thankyou?ref=<registration_id>&caps_transaction_id=<CAPS id>"
+        - link: thankyou
+          text: "FREE and ZERO FEE: Submit goes straight to the thank-you page. There is no payment, so there is no CAPS id:"
+          code: "<rx origin>/<locale>/programs/<program_id>/thankyou?ref=<registration_id>"
+        - link: fail
+          text: "PAID: failed, or any other status, goes to:"
+          code: "<rx origin>/<locale>/programs/<program_id>/failed?ref=<registration_id>&caps_transaction_id=<CAPS id>"
+        - link: retry
+          text: "PAID: the Try again button on the failed page opens:"
+          code: "<rx origin>/<locale>/programs/<program_id>/retry-payment?ref=<registration_id>&caps_transaction_id=<CAPS id>"
+        - link: member
+          text: "Each member's email has this link. It opens the page where the member confirms the agreement (no payment):"
+          code: "<program registration_url>/action-required?ref=<member registration_id>"
+        - "The links never change. If the payment is already finished, opening the step 3 link goes to the thank-you page."
+
+  notes:
+    - "Group registration (rx pages for a primary participant who adds members). Single-participant events are in the other Event Registration flow. Ticketed events have their own pages."
+    - "Code-derived (rx, bx-be-nestjs and caps-be on origin/dev), not run on a live system."
+    - "Not in the repositories, so assumed: the database trigger that sets payment_status CONFIRMED on the primary after a webhook. Nothing in the code updates the members' payment_status after payment, so it stays PENDING unless a trigger does it. The primary's email in a free group is the pending-action one only if no trigger confirms it first."
+    - "Not checked: whether members also get tickets or invoices, whether a member is ever sent to a payment step, and whether the primary is told when the last member finishes."
+    - "Possible gaps, from reading the code: the zero-fee Submit button looks at the primary's own amount while the redirect looks at the group sum. A registration saved again with an existing registration id does not create the zero-fee transaction."

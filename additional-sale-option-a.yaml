@@ -1,0 +1,200 @@
+# Transaction flow diagram. Edit this file, then run ./transaction_flow.sh
+# Same format as workflow-diagram-tool: nodes + edges. See README.md for the field list.
+# PROPOSED solution for the additional sale (online payment). Source: "Additional Sale (Fee Adjustment):
+# Transaction Records for Online Payments" (Oct 14, 2026). Goal: every payment attempt is stored as its own record.
+
+workflow:
+  name: "Additional Sale - Proposed Option A: fill T1 with C1, then insert new rows for C2 and C3"
+
+  nodes:
+    - id: flow_start
+      label: "START"
+      type: marker
+      subtype: start
+
+    - id: bx_create
+      label: "Teacher submits the additional sale"
+      type: frontend_screen
+      subtype: bx_screen
+      context: "Payment Mode: Online"
+
+    - id: t1_new
+      label: "INSERT T1 (id 101)"
+      type: db_row
+      subtype: transaction_row
+      state: PENDING
+      context:
+        - "program_participant_transaction"
+        - "caps_transaction_id = null"
+        - "payment_transaction_id = null, pg_name = null"
+        - "organization_fee = 100.00, total_amount = 110.00"
+
+    - id: p1_new
+      label: "UPDATE P1"
+      type: db_row
+      subtype: participant_row
+      context:
+        - "program_participant"
+        - "balance_due = amount"
+        - "total_amount = total_amount + amount"
+
+    - id: mail_request
+      label: "Request email"
+      type: notification
+      subtype: email
+      context:
+        - "to the participant"
+        - "the link carries the T1 id (trxnId)"
+
+    - id: rx_pay
+      label: "Participant clicks Pay now"
+      type: frontend_screen
+      subtype: rx_screen
+      context:
+        - "rx passes trxnId = the T1 id to CAPS"
+        - "every click creates a new CAPS order: C1, C2, C3 ..."
+
+    - id: hook_rule
+      label: "Webhook rule (additional sale only)"
+      type: backend_service
+      subtype: bx_service
+      context:
+        - "1. a row with this CAPS id exists: update it"
+        - "2. else load T1 by trxnId"
+        - "3. T1 has no CAPS id: fill T1 (first attempt)"
+        - "4. T1 has another CAPS id: insert a new row copied from T1"
+
+    - id: rep
+      label: "Same CAPS id again"
+      type: backend_service
+      subtype: bx_service
+      context:
+        - "repeat webhook for the same attempt"
+        - "rule 1: that row is updated, no duplicate"
+
+    - id: a1
+      label: "Attempt 1 (C1) fails: UPDATE T1"
+      type: db_row
+      subtype: transaction_row
+      state: FAILED
+      context:
+        - "id 101 (T1)"
+        - "caps_transaction_id = C1"
+        - "payment_transaction_id = pi_aaa, pg_name = stripe"
+        - "the admin's PENDING values are overwritten"
+
+    - id: a2
+      label: "Attempt 2 (C2) abandoned: INSERT T2"
+      type: db_row
+      subtype: transaction_row
+      state: PENDING
+      context:
+        - "id 102 (T2), copied from T1"
+        - "caps_transaction_id = C2"
+        - "payment_transaction_id = pi_bbb"
+
+    - id: a3
+      label: "Attempt 3 (C3) succeeds: INSERT T3"
+      type: db_row
+      subtype: transaction_row
+      state: CONFIRMED
+      context:
+        - "id 103 (T3), copied from T1"
+        - "caps_transaction_id = C3"
+        - "payment_transaction_id = pi_ccc"
+
+    - id: p1_paid
+      label: "UPDATE P1"
+      type: db_row
+      subtype: participant_row
+      context:
+        - "program_participant"
+        - "balance_due = balance_due - amount paid"
+        - "only once, when the paid row is CONFIRMED"
+
+    - id: mail_ok
+      label: "Success email"
+      type: notification
+      subtype: email
+      context:
+        - "with invoice"
+        - "attached to the paid row"
+
+  edges:
+    - from: flow_start
+      to: bx_create
+    - from: bx_create
+      to: t1_new
+    - from: t1_new
+      to: p1_new
+    - from: p1_new
+      to: mail_request
+    - from: mail_request
+      to: rx_pay
+      condition: "participant clicks the link"
+    - from: rx_pay
+      to: hook_rule
+      condition: "CAPS order created, webhook"
+    - from: hook_rule
+      to: rep
+      condition: "same CAPS id again"
+      style: dashed
+    - from: hook_rule
+      to: a1
+      condition: "attempt 1: T1 has no CAPS id"
+    - from: hook_rule
+      to: a2
+      condition: "attempt 2: T1 already has C1"
+    - from: hook_rule
+      to: a3
+      condition: "attempt 3: a new CAPS id"
+    - from: a3
+      to: p1_paid
+    - from: a3
+      to: mail_ok
+
+  steps:
+    - step: "Admin submits"
+      table: program_participant_transaction
+      change: "101 (T1) PENDING; caps_transaction_id null; payment_transaction_id null; pg_name null; total_amount 110.00"
+    - step: "Attempt 1 (C1) fails"
+      table: program_participant_transaction
+      change: "101 (T1) is updated: FAILED; caps_transaction_id C1; payment_transaction_id pi_aaa; pg_name stripe"
+    - step: "Attempt 2 (C2) abandoned"
+      table: program_participant_transaction
+      change: "102 (T2) is inserted, copied from T1: PENDING; C2; pi_bbb; stripe"
+    - step: "Attempt 3 (C3) succeeds"
+      table: program_participant_transaction
+      change: "103 (T3) is inserted, copied from T1: CONFIRMED; C3; pi_ccc; stripe"
+    - step: "Participant balance"
+      table: program_participant
+      change: "balance_due = balance_due - amount paid, once, when T3 is CONFIRMED"
+
+  points:
+    - text: "Why this option: today every retry overwrites T1, so only the last attempt is kept. This option keeps every attempt."
+      items:
+        - "Today: C1 fails and is written on T1. Riya retries, C2 comes and overwrites T1. C1 is lost."
+        - "Option A: C1 is written on T1. C2 is inserted as a new row T2. C3 is inserted as a new row T3. All three attempts stay."
+    - text: "How the rows are made: T1 becomes the first payment attempt. Every later attempt is a new row copied from T1."
+      items:
+        - "C1 comes: T1 (id 101) is overwritten with C1: status FAILED, payment id pi_aaa, gateway stripe."
+        - "C2 comes: a new row T2 (id 102) is inserted, copied from T1, with C2 and pi_bbb."
+        - "C3 comes: a new row T3 (id 103) is inserted, copied from T1, with C3 and pi_ccc."
+        - "Copied from T1 to every new row: the fee columns, is_additional_sale, purpose, reason_for_additional_sale and created_by_user_id."
+    - text: "Drawback: when C1 is written on T1, the admin's original values on T1 are overwritten and cannot be recovered."
+      items:
+        - "Before the payment, T1 has the admin's values: status PENDING, no CAPS id, no payment id, total_amount 110.00."
+        - "C1 overwrites these on T1: status, CAPS id, payment id, gateway, payment method, date, total_amount (the amount CAPS sends), response and CAPS data."
+        - "After that nobody can see what the admin originally saved."
+
+  boxes:
+    - title: "Changes needed with either option (bx-be-nestjs)"
+      lines:
+        - "Duplicate-payment guard (validate-payment-order). Today: it checks only the row whose id equals trxnId and ignores PENDING and FAILED rows. Change: check every row of the same sale and abort with REFRESH_AND_ABORT if any is CONFIRMED, PROCESSING or NOT_RECEIVED. Without this a participant could pay twice."
+        - "rx additional-sale read path (rx-additional-sale-participant-data). Today: it returns only the row whose id equals trxnId. Change: return the sale-level status, the CONFIRMED or PROCESSING row if one exists, otherwise the latest attempt. Otherwise rx can show the pay page again after a successful payment."
+        - "Revoke. Today: it subtracts the row's amount from the participant's totals. Change: block it if any attempt of the sale is CONFIRMED or PROCESSING, and apply the totals adjustment once."
+        - "Edit payment. Today: PENDING rows only, and CONFIRMED reduces balance_due. Change: block it if another attempt of the same sale is already paid."
+        - "Lists, exports and program summary. Today: they select is_additional_sale = true, one row per sale. Change: decide per screen whether to show every attempt or only the winning one. Which statuses the summary counts has not been checked."
+        - "Notifications. Today: a second FAILED on the same row sends no email because the status did not change. Change: each new FAILED row counts as a status change and sends an email. Confirm that is wanted."
+        - "Invoices and the success email: no change, they attach to the paid row."
+        - "Offline additional sale: no change in either option. CAPS is never involved, so no webhook arrives. Safety net to agree: validate-payment-order rejects an online payment for an additional sale created offline (payment_method_id set and caps_transaction_id null), because the rule 'fill T1 if it has no CAPS id' would match an offline row paid through a leftover link."

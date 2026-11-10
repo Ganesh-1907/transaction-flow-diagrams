@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Additional Sale - Proposed Option A: fill T1 with C1, then insert new rows for C2 and C3</title>
+<style>
+    body { margin: 0; padding: 20px; background: white; font-family: sans-serif; }
+    h1 { text-align: center; margin: 10px 0 6px; font-size: 1.4em; }
+    .summary { text-align: center; max-width: 1000px; margin: 0 auto 14px; color: #444; font-size: 0.95em; }
+    .legend-box { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 10px 16px; margin: 0 auto 16px;
+                  border: 2px solid #424242; border-radius: 6px; background: #fafafa; max-width: fit-content; }
+    .legend-item { padding: 4px 9px; border-radius: 3px; font-size: 0.8em; font-weight: 500; }
+    .mermaid { overflow: auto; margin: 10px 0; text-align: center; }
+    table.counts { border-collapse: collapse; margin: 18px auto; min-width: 700px; }
+    table.counts th { background: #263238; color: #fff; text-align: left; padding: 7px 12px; font-size: 0.85em; }
+    table.counts td { border: 1px solid #cfd8dc; padding: 7px 12px; font-size: 0.85em; }
+    .points { max-width: 1000px; margin: 14px auto; color: #444; font-size: 0.9em; line-height: 1.6; }
+    .points > li { margin-top: 8px; }
+    .points > li > ul { margin: 2px 0 6px; }
+    .note-box { max-width: 1000px; margin: 18px auto; padding: 12px 18px; border: 2px solid #f9a825; border-radius: 6px;
+                background: #fff59d; color: #333; font-size: 0.9em; line-height: 1.5; }
+    .note-box h3 { margin: 0 0 8px; font-size: 1.05em; }
+    .note-box p { margin: 8px 0; overflow-wrap: anywhere; }
+    .link-name { display: inline-block; padding: 1px 9px; margin-right: 4px; border-radius: 10px; color: #fff; font-weight: 700; font-size: 0.95em; }
+    .note-box code { display: inline-block; margin-top: 3px; padding: 2px 6px; background: rgba(255, 255, 255, 0.85); border: 1px solid #e0c94f; border-radius: 3px; font-size: 0.95em; }
+    .notes { max-width: 1000px; margin: 0 auto; color: #555; font-size: 0.8em; }
+</style>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: true, theme: 'default', flowchart: { useMaxWidth: false } });
+</script>
+</head>
+<body>
+<div class="legend-box"><span class="legend-item" style="background:#ffcdd2;border:1px solid #b71c1c;stroke-width:2px">rx screen</span><span class="legend-item" style="background:#e0f7fa;border:1px solid #006064;stroke-width:2px">BX screen (teacher)</span><span class="legend-item" style="background:#c8e6c9;border:1px solid #1b5e20;stroke-width:2px">BX API / webhook</span><span class="legend-item" style="background:#e3f2fd;border:1px solid #0d47a1;stroke-width:2px">program_participant row</span><span class="legend-item" style="background:#fff59d;border:1px solid #f9a825;stroke-width:2px">transaction PENDING</span><span class="legend-item" style="background:#a5d6a7;border:1px solid #2e7d32;stroke-width:2px">transaction CONFIRMED</span><span class="legend-item" style="background:#ef9a9a;border:1px solid #c62828;stroke-width:2px">transaction FAILED</span><span class="legend-item" style="background:#ffe0b2;border:1px solid #e65100;stroke-width:2px">email</span></div>
+<h1>Additional Sale - Proposed Option A: fill T1 with C1, then insert new rows for C2 and C3</h1>
+<p class="summary"></p>
+<div class="mermaid">
+flowchart TD
+    flow_start(("START"))
+    bx_create["Teacher submits the additional sale\n---\nPayment Mode: Online"]
+    t1_new[("INSERT T1 (id 101)\n---\nprogram_participant_transaction\ncaps_transaction_id = null\npayment_transaction_id = null, pg_name = null\norganization_fee = 100.00, total_amount = 110.00")]
+    p1_new[("UPDATE P1\n---\nprogram_participant\nbalance_due = amount\ntotal_amount = total_amount + amount")]
+    mail_request(["Request email\n---\nto the participant\nthe link carries the T1 id (trxnId)"])
+    rx_pay["Participant clicks Pay now\n---\nrx passes trxnId = the T1 id to CAPS\nevery click creates a new CAPS order: C1, C2, C3 ..."]
+    hook_rule[["Webhook rule (additional sale only)\n---\n1. a row with this CAPS id exists: update it\n2. else load T1 by trxnId\n3. T1 has no CAPS id: fill T1 (first attempt)\n4. T1 has another CAPS id: insert a new row copied from T1"]]
+    rep[["Same CAPS id again\n---\nrepeat webhook for the same attempt\nrule 1: that row is updated, no duplicate"]]
+    a1[("Attempt 1 (C1) fails: UPDATE T1\n---\nid 101 (T1)\ncaps_transaction_id = C1\npayment_transaction_id = pi_aaa, pg_name = stripe\nthe admin's PENDING values are overwritten")]
+    a2[("Attempt 2 (C2) abandoned: INSERT T2\n---\nid 102 (T2), copied from T1\ncaps_transaction_id = C2\npayment_transaction_id = pi_bbb")]
+    a3[("Attempt 3 (C3) succeeds: INSERT T3\n---\nid 103 (T3), copied from T1\ncaps_transaction_id = C3\npayment_transaction_id = pi_ccc")]
+    p1_paid[("UPDATE P1\n---\nprogram_participant\nbalance_due = balance_due - amount paid\nonly once, when the paid row is CONFIRMED")]
+    mail_ok(["Success email\n---\nwith invoice\nattached to the paid row"])
+    flow_start --&gt; bx_create
+    bx_create --&gt; t1_new
+    t1_new --&gt; p1_new
+    p1_new --&gt; mail_request
+    mail_request --&gt;|"participant clicks the link"| rx_pay
+    rx_pay --&gt;|"CAPS order created, webhook"| hook_rule
+    hook_rule -.-&gt;|"same CAPS id again"| rep
+    hook_rule --&gt;|"attempt 1: T1 has no CAPS id"| a1
+    hook_rule --&gt;|"attempt 2: T1 already has C1"| a2
+    hook_rule --&gt;|"attempt 3: a new CAPS id"| a3
+    a3 --&gt; p1_paid
+    a3 --&gt; mail_ok
+
+    classDef rxScreen fill:#ffcdd2,stroke:#b71c1c,stroke-width:2px;
+    classDef bxScreen fill:#e0f7fa,stroke:#006064,stroke-width:2px;
+    classDef bxService fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px;
+    classDef capsService fill:#eceff1,stroke:#37474f,stroke-width:2px;
+    classDef userRow fill:#ede7f6,stroke:#4527a0,stroke-width:2px;
+    classDef participantRow fill:#e3f2fd,stroke:#0d47a1,stroke-width:2px;
+    classDef txPending fill:#fff59d,stroke:#f9a825,stroke-width:2px;
+    classDef txProcessing fill:#b3e5fc,stroke:#0277bd,stroke-width:2px;
+    classDef txConfirmed fill:#a5d6a7,stroke:#2e7d32,stroke-width:2px;
+    classDef txFailed fill:#ef9a9a,stroke:#c62828,stroke-width:2px;
+    classDef txNotReceived fill:#ffccbc,stroke:#bf360c,stroke-width:2px;
+    classDef txNone fill:#f5f5f5,stroke:#9e9e9e,stroke-width:2px;
+    classDef email fill:#ffe0b2,stroke:#e65100,stroke-width:2px;
+    classDef startNode fill:#2e7d32,stroke:#1b5e20,stroke-width:3px,color:#fff;
+    classDef problem fill:#ffebee,stroke:#c62828,stroke-width:3px,stroke-dasharray:6 3;
+    classDef expected fill:#c8e6c9,stroke:#2e7d32,stroke-width:3px;
+    class flow_start startNode;
+    class bx_create bxScreen;
+    class t1_new,a2 txPending;
+    class p1_new,p1_paid participantRow;
+    class mail_request,mail_ok email;
+    class rx_pay rxScreen;
+    class hook_rule,rep bxService;
+    class a1 txFailed;
+    class a3 txConfirmed;
+</div>
+
+<div class="note-box"><h3>Changes needed with either option (bx-be-nestjs)</h3><p>Duplicate-payment guard (validate-payment-order). Today: it checks only the row whose id equals trxnId and ignores PENDING and FAILED rows. Change: check every row of the same sale and abort with REFRESH_AND_ABORT if any is CONFIRMED, PROCESSING or NOT_RECEIVED. Without this a participant could pay twice.</p><p>rx additional-sale read path (rx-additional-sale-participant-data). Today: it returns only the row whose id equals trxnId. Change: return the sale-level status, the CONFIRMED or PROCESSING row if one exists, otherwise the latest attempt. Otherwise rx can show the pay page again after a successful payment.</p><p>Revoke. Today: it subtracts the row&#x27;s amount from the participant&#x27;s totals. Change: block it if any attempt of the sale is CONFIRMED or PROCESSING, and apply the totals adjustment once.</p><p>Edit payment. Today: PENDING rows only, and CONFIRMED reduces balance_due. Change: block it if another attempt of the same sale is already paid.</p><p>Lists, exports and program summary. Today: they select is_additional_sale = true, one row per sale. Change: decide per screen whether to show every attempt or only the winning one. Which statuses the summary counts has not been checked.</p><p>Notifications. Today: a second FAILED on the same row sends no email because the status did not change. Change: each new FAILED row counts as a status change and sends an email. Confirm that is wanted.</p><p>Invoices and the success email: no change, they attach to the paid row.</p><p>Offline additional sale: no change in either option. CAPS is never involved, so no webhook arrives. Safety net to agree: validate-payment-order rejects an online payment for an additional sale created offline (payment_method_id set and caps_transaction_id null), because the rule &#x27;fill T1 if it has no CAPS id&#x27; would match an offline row paid through a leftover link.</p></div>
+<table class="counts"><tr><th>Step</th><th>Table</th><th>Rows</th></tr><tr><td><b>Admin submits</b></td><td>program_participant_transaction</td><td>101 (T1) PENDING; caps_transaction_id null; payment_transaction_id null; pg_name null; total_amount 110.00</td></tr><tr><td><b>Attempt 1 (C1) fails</b></td><td>program_participant_transaction</td><td>101 (T1) is updated: FAILED; caps_transaction_id C1; payment_transaction_id pi_aaa; pg_name stripe</td></tr><tr><td><b>Attempt 2 (C2) abandoned</b></td><td>program_participant_transaction</td><td>102 (T2) is inserted, copied from T1: PENDING; C2; pi_bbb; stripe</td></tr><tr><td><b>Attempt 3 (C3) succeeds</b></td><td>program_participant_transaction</td><td>103 (T3) is inserted, copied from T1: CONFIRMED; C3; pi_ccc; stripe</td></tr><tr><td><b>Participant balance</b></td><td>program_participant</td><td>balance_due = balance_due - amount paid, once, when T3 is CONFIRMED</td></tr></table>
+<ul class="points"><li>Why this option: today every retry overwrites T1, so only the last attempt is kept. This option keeps every attempt.<ul><li>Today: C1 fails and is written on T1. Riya retries, C2 comes and overwrites T1. C1 is lost.</li><li>Option A: C1 is written on T1. C2 is inserted as a new row T2. C3 is inserted as a new row T3. All three attempts stay.</li></ul></li><li>How the rows are made: T1 becomes the first payment attempt. Every later attempt is a new row copied from T1.<ul><li>C1 comes: T1 (id 101) is overwritten with C1: status FAILED, payment id pi_aaa, gateway stripe.</li><li>C2 comes: a new row T2 (id 102) is inserted, copied from T1, with C2 and pi_bbb.</li><li>C3 comes: a new row T3 (id 103) is inserted, copied from T1, with C3 and pi_ccc.</li><li>Copied from T1 to every new row: the fee columns, is_additional_sale, purpose, reason_for_additional_sale and created_by_user_id.</li></ul></li><li>Drawback: when C1 is written on T1, the admin&#x27;s original values on T1 are overwritten and cannot be recovered.<ul><li>Before the payment, T1 has the admin&#x27;s values: status PENDING, no CAPS id, no payment id, total_amount 110.00.</li><li>C1 overwrites these on T1: status, CAPS id, payment id, gateway, payment method, date, total_amount (the amount CAPS sends), response and CAPS data.</li><li>After that nobody can see what the admin originally saved.</li></ul></li></ul>
+<div class="notes"></div>
+</body>
+</html>

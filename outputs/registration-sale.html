@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Registration Sale - Adult course (full amount)</title>
+<style>
+    body { margin: 0; padding: 20px; background: white; font-family: sans-serif; }
+    h1 { text-align: center; margin: 10px 0 6px; font-size: 1.4em; }
+    .summary { text-align: center; max-width: 1000px; margin: 0 auto 14px; color: #444; font-size: 0.95em; }
+    .legend-box { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 10px 16px; margin: 0 auto 16px;
+                  border: 2px solid #424242; border-radius: 6px; background: #fafafa; max-width: fit-content; }
+    .legend-item { padding: 4px 9px; border-radius: 3px; font-size: 0.8em; font-weight: 500; }
+    .mermaid { overflow: auto; margin: 10px 0; text-align: center; }
+    table.counts { border-collapse: collapse; margin: 18px auto; min-width: 700px; }
+    table.counts th { background: #263238; color: #fff; text-align: left; padding: 7px 12px; font-size: 0.85em; }
+    table.counts td { border: 1px solid #cfd8dc; padding: 7px 12px; font-size: 0.85em; }
+    .points { max-width: 1000px; margin: 14px auto; color: #444; font-size: 0.9em; line-height: 1.6; }
+    .points > li { margin-top: 8px; }
+    .points > li > ul { margin: 2px 0 6px; }
+    .note-box { max-width: 1000px; margin: 18px auto; padding: 12px 18px; border: 2px solid #f9a825; border-radius: 6px;
+                background: #fff59d; color: #333; font-size: 0.9em; line-height: 1.5; }
+    .note-box h3 { margin: 0 0 8px; font-size: 1.05em; }
+    .note-box p { margin: 8px 0; overflow-wrap: anywhere; }
+    .link-name { display: inline-block; padding: 1px 9px; margin-right: 4px; border-radius: 10px; color: #fff; font-weight: 700; font-size: 0.95em; }
+    .note-box code { display: inline-block; margin-top: 3px; padding: 2px 6px; background: rgba(255, 255, 255, 0.85); border: 1px solid #e0c94f; border-radius: 3px; font-size: 0.95em; }
+    .notes { max-width: 1000px; margin: 0 auto; color: #555; font-size: 0.8em; }
+</style>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: true, theme: 'default', flowchart: { useMaxWidth: false } });
+</script>
+</head>
+<body>
+<div class="legend-box"><span class="legend-item" style="background:#ffcdd2;border:1px solid #b71c1c;stroke-width:2px">rx screen</span><span class="legend-item" style="background:#eceff1;border:1px solid #37474f;stroke-width:2px">CAPS</span><span class="legend-item" style="background:#ede7f6;border:1px solid #4527a0;stroke-width:2px">users row</span><span class="legend-item" style="background:#e3f2fd;border:1px solid #0d47a1;stroke-width:2px">program_participant row</span><span class="legend-item" style="background:#fff59d;border:1px solid #f9a825;stroke-width:2px">transaction PENDING</span><span class="legend-item" style="background:#a5d6a7;border:1px solid #2e7d32;stroke-width:2px">transaction CONFIRMED</span><span class="legend-item" style="background:#ef9a9a;border:1px solid #c62828;stroke-width:2px">transaction FAILED</span><span class="legend-item" style="background:#ffe0b2;border:1px solid #e65100;stroke-width:2px">email</span></div>
+<h1>Registration Sale - Adult course (full amount)</h1>
+<p class="summary"></p>
+<div class="mermaid">
+flowchart TD
+    flow_start(("START"))
+    rx_step1["Step 1 Personal info\n---\nname, email, mobile"]
+    subgraph grp_users["users"]
+        tbl_user[("INSERT or UPDATE user")]
+    end
+    rx_step2["Step 2 Registration details\n---\nfees, discount code, agreements"]
+    subgraph grp_program_participant["program_participant"]
+        tbl_participant[("INSERT P1\n---\npayment_status PENDING\nbalance_due = total_amount\nNO transaction row yet")]
+        tbl_participant_paid[("UPDATE P1\n---\nbalance_due reduced by the amount paid\npayment_status CONFIRMED (DB trigger)")]
+    end
+    rx_step3["Step 3 Payment\n---\nevery Pay now click creates a new transaction\nalso opened again from the retry email link"]
+    subgraph grp_program_participant_transaction["program_participant_transaction"]
+        tbl_t1[("INSERT T1\n---\nP1 becomes visible (first transaction webhook)")]
+        tbl_t1_failed[("UPDATE T1\n---\nPENDING -&gt; FAILED")]
+        tbl_t2[("INSERT T2, then UPDATE\n---\nPENDING -&gt; FAILED")]
+        tbl_t3[("INSERT T3, then UPDATE\n---\nPENDING -&gt; CONFIRMED")]
+    end
+    rx_close["Case 1: user closes the tab\n---\nnothing else runs in rx"]
+    rx_back["Case 2: user clicks Back\n---\nstep 3 reloads from the server\nT1 is PENDING (not final), so step 3 opens again"]
+    caps_rescue[["CAPS rescue service\n---\nhourly job, T1 has no gateway id\nTupaggo: PENDING over 72h, other gateways: over 1h"]]
+    rx_failed["Failed page\n---\npayment failed or any other status\nhas a Try again button"]
+    mail_retry(["Retry payment email\n---\nsent when T1 or T2 turns FAILED\nbalance_due == total_amount (nothing paid yet)"])
+    rx_thankyou["Thank you page\n---\npayment success or processing"]
+    mail_confirm(["Confirmation email"])
+    flow_start --&gt; rx_step1
+    rx_step1 --&gt;|"Continue"| tbl_user
+    tbl_user --&gt; rx_step2
+    rx_step2 --&gt;|"Continue"| tbl_participant
+    tbl_participant --&gt;|"&lt;span style='color:rgb(21,101,192);font-weight:bold'&gt;Payment step link&lt;/span&gt;"| rx_step3
+    rx_step3 --&gt;|"click 1: CAPS order, webhook created"| tbl_t1
+    tbl_t1 --&gt;|"card / PIN not finished"| rx_close
+    tbl_t1 --&gt;|"card / PIN not finished"| rx_back
+    rx_back -.-&gt;|"step 3 opens again"| rx_step3
+    tbl_t1 -.-&gt;|"stays PENDING"| caps_rescue
+    caps_rescue --&gt;|"webhook failed"| tbl_t1_failed
+    tbl_t1_failed --&gt; mail_retry
+    rx_step3 --&gt;|"click 2: payment declined"| tbl_t2
+    tbl_t2 --&gt; mail_retry
+    tbl_t2 --&gt;|"&lt;span style='color:rgb(198,40,40);font-weight:bold'&gt;Fail link&lt;/span&gt;"| rx_failed
+    rx_failed -.-&gt;|"&lt;span style='color:rgb(230,81,0);font-weight:bold'&gt;Retry link&lt;/span&gt;&lt;br/&gt;Try again button"| rx_step3
+    mail_retry -.-&gt;|"&lt;span style='color:rgb(230,81,0);font-weight:bold'&gt;Retry link&lt;/span&gt;&lt;br/&gt;participant clicks it, step 3 opens again"| rx_step3
+    rx_step3 --&gt;|"click 3: payment succeeds"| tbl_t3
+    tbl_t3 --&gt;|"balance_due reduced"| tbl_participant_paid
+    tbl_t3 --&gt; mail_confirm
+    tbl_t3 --&gt;|"&lt;span style='color:rgb(46,125,50);font-weight:bold'&gt;Thank you link&lt;/span&gt;"| rx_thankyou
+    linkStyle 4 stroke:#1565c0,stroke-width:3px
+    linkStyle 14 stroke:#c62828,stroke-width:3px
+    linkStyle 15 stroke:#e65100,stroke-width:3px
+    linkStyle 16 stroke:#e65100,stroke-width:3px
+    linkStyle 20 stroke:#2e7d32,stroke-width:3px
+
+    classDef rxScreen fill:#ffcdd2,stroke:#b71c1c,stroke-width:2px;
+    classDef bxScreen fill:#e0f7fa,stroke:#006064,stroke-width:2px;
+    classDef bxService fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px;
+    classDef capsService fill:#eceff1,stroke:#37474f,stroke-width:2px;
+    classDef userRow fill:#ede7f6,stroke:#4527a0,stroke-width:2px;
+    classDef participantRow fill:#e3f2fd,stroke:#0d47a1,stroke-width:2px;
+    classDef txPending fill:#fff59d,stroke:#f9a825,stroke-width:2px;
+    classDef txProcessing fill:#b3e5fc,stroke:#0277bd,stroke-width:2px;
+    classDef txConfirmed fill:#a5d6a7,stroke:#2e7d32,stroke-width:2px;
+    classDef txFailed fill:#ef9a9a,stroke:#c62828,stroke-width:2px;
+    classDef txNotReceived fill:#ffccbc,stroke:#bf360c,stroke-width:2px;
+    classDef txNone fill:#f5f5f5,stroke:#9e9e9e,stroke-width:2px;
+    classDef email fill:#ffe0b2,stroke:#e65100,stroke-width:2px;
+    classDef startNode fill:#2e7d32,stroke:#1b5e20,stroke-width:3px,color:#fff;
+    classDef problem fill:#ffebee,stroke:#c62828,stroke-width:3px,stroke-dasharray:6 3;
+    classDef expected fill:#c8e6c9,stroke:#2e7d32,stroke-width:3px;
+    class flow_start startNode;
+    class rx_step1,rx_step2,rx_step3,rx_close,rx_back,rx_failed,rx_thankyou rxScreen;
+    class tbl_user userRow;
+    class tbl_participant,tbl_participant_paid participantRow;
+    class tbl_t1 txPending;
+    class caps_rescue capsService;
+    class tbl_t1_failed,tbl_t2 txFailed;
+    class mail_retry,mail_confirm email;
+    class tbl_t3 txConfirmed;
+    style grp_users fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;
+    style grp_program_participant fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;
+    style grp_program_participant_transaction fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;
+</div>
+
+<div class="note-box"><h3>Built URL</h3><p><span class="link-name" style="background:#1565c0">Payment step link</span> rx builds it after step 2. Any link with ?ref= opens step 3:<br><code>&lt;rx origin&gt;/&lt;locale&gt;/programs/&lt;program_id&gt;?ref=&lt;registration_id&gt;</code></p><p>registration_id is the participant&#x27;s registration UUID, returned by the step 2 registration call. rx also sends it to CAPS as participant_id when Pay now is clicked.</p><p><span class="link-name" style="background:#2e7d32">Thank you link</span> After the gateway, success or processing goes to:<br><code>&lt;rx origin&gt;/&lt;locale&gt;/programs/&lt;program_id&gt;/thankyou?ref=&lt;registration_id&gt;&amp;caps_transaction_id=&lt;CAPS id&gt;</code></p><p><span class="link-name" style="background:#c62828">Fail link</span> Failed, or any other status, goes to:<br><code>&lt;rx origin&gt;/&lt;locale&gt;/programs/&lt;program_id&gt;/failed?ref=&lt;registration_id&gt;&amp;caps_transaction_id=&lt;CAPS id&gt;</code></p><p><span class="link-name" style="background:#e65100">Retry link</span> Sent in the retry email (built by BX):<br><code>&lt;participant retry_payment_url&gt;/retry-payment?ref=&lt;registration_id&gt;&amp;caps_transaction_id=&lt;CAPS id&gt;</code></p><p>retry_payment_url is saved on the participant at step 2 (rx sends &lt;rx origin&gt;/&lt;locale&gt;/programs/&lt;program_id&gt;). The Try again button on the failed page opens the same retry-payment page.</p><p>The links never change. If the payment is already finished, opening the step 3 link goes to the thank-you page.</p></div>
+<table class="counts"><tr><th>Step</th><th>Table</th><th>Rows</th></tr><tr><td><b>Step 1</b></td><td>users</td><td>INSERT user (or UPDATE if the email already exists)</td></tr><tr><td><b>Step 2</b></td><td>program_participant</td><td>INSERT P1, payment_status PENDING</td></tr><tr><td><b>Step 3, click 1</b></td><td>program_participant_transaction</td><td>INSERT T1 PENDING, then FAILED (rescue service)</td></tr><tr><td><b>Step 3, click 2</b></td><td>program_participant_transaction</td><td>INSERT T2 PENDING, then FAILED (declined)</td></tr><tr><td><b>Step 3, click 3</b></td><td>program_participant_transaction</td><td>INSERT T3 PENDING, then CONFIRMED</td></tr><tr><td><b>Step 3, click 3</b></td><td>program_participant</td><td>UPDATE P1, balance_due reduced, payment_status CONFIRMED</td></tr></table>
+<ul class="points"><li>Step 1 writes the users row.</li><li>Step 2 inserts the program_participant row.</li><li>Every Pay now click in step 3 creates one more transaction row.</li><li>T1 abandoned: PENDING, later FAILED by the rescue service.</li><li>T2 declined: FAILED.</li><li>T3 paid: CONFIRMED.</li><li>After a failed attempt, the retry email link opens step 3 again.</li></ul>
+<div class="notes"></div>
+</body>
+</html>

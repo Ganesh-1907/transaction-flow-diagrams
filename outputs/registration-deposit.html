@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Registration Sale - Adult course (deposit)</title>
+<style>
+    body { margin: 0; padding: 20px; background: white; font-family: sans-serif; }
+    h1 { text-align: center; margin: 10px 0 6px; font-size: 1.4em; }
+    .summary { text-align: center; max-width: 1000px; margin: 0 auto 14px; color: #444; font-size: 0.95em; }
+    .legend-box { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 10px 16px; margin: 0 auto 16px;
+                  border: 2px solid #424242; border-radius: 6px; background: #fafafa; max-width: fit-content; }
+    .legend-item { padding: 4px 9px; border-radius: 3px; font-size: 0.8em; font-weight: 500; }
+    .mermaid { overflow: auto; margin: 10px 0; text-align: center; }
+    table.counts { border-collapse: collapse; margin: 18px auto; min-width: 700px; }
+    table.counts th { background: #263238; color: #fff; text-align: left; padding: 7px 12px; font-size: 0.85em; }
+    table.counts td { border: 1px solid #cfd8dc; padding: 7px 12px; font-size: 0.85em; }
+    .points { max-width: 1000px; margin: 14px auto; color: #444; font-size: 0.9em; line-height: 1.6; }
+    .points > li { margin-top: 8px; }
+    .points > li > ul { margin: 2px 0 6px; }
+    .note-box { max-width: 1000px; margin: 18px auto; padding: 12px 18px; border: 2px solid #f9a825; border-radius: 6px;
+                background: #fff59d; color: #333; font-size: 0.9em; line-height: 1.5; }
+    .note-box h3 { margin: 0 0 8px; font-size: 1.05em; }
+    .note-box p { margin: 8px 0; overflow-wrap: anywhere; }
+    .link-name { display: inline-block; padding: 1px 9px; margin-right: 4px; border-radius: 10px; color: #fff; font-weight: 700; font-size: 0.95em; }
+    .note-box code { display: inline-block; margin-top: 3px; padding: 2px 6px; background: rgba(255, 255, 255, 0.85); border: 1px solid #e0c94f; border-radius: 3px; font-size: 0.95em; }
+    .notes { max-width: 1000px; margin: 0 auto; color: #555; font-size: 0.8em; }
+</style>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: true, theme: 'default', flowchart: { useMaxWidth: false } });
+</script>
+</head>
+<body>
+<div class="legend-box"><span class="legend-item" style="background:#ffcdd2;border:1px solid #b71c1c;stroke-width:2px">rx screen</span><span class="legend-item" style="background:#ede7f6;border:1px solid #4527a0;stroke-width:2px">users row</span><span class="legend-item" style="background:#e3f2fd;border:1px solid #0d47a1;stroke-width:2px">program_participant row</span><span class="legend-item" style="background:#a5d6a7;border:1px solid #2e7d32;stroke-width:2px">transaction CONFIRMED</span><span class="legend-item" style="background:#ef9a9a;border:1px solid #c62828;stroke-width:2px">transaction FAILED</span><span class="legend-item" style="background:#ffe0b2;border:1px solid #e65100;stroke-width:2px">email</span></div>
+<h1>Registration Sale - Adult course (deposit)</h1>
+<p class="summary"></p>
+<div class="mermaid">
+flowchart TD
+    flow_start(("START"))
+    rx_step1["Step 1 Personal info\n---\nname, email, mobile"]
+    subgraph grp_users["users"]
+        tbl_user[("INSERT or UPDATE user")]
+    end
+    rx_step2["Step 2 Registration details\n---\nfees, discount code, agreements\nchooses Pay Deposit (default is Pay Full Amount)\nshown only when deposits are enabled and still accepted"]
+    tbl_p1[("INSERT P1\n---\nprogram_participant\ndeposit_type = DEPOSIT\ndeposit_amount = the deposit\ntotal_amount = full amount\nbalance_due = full amount (same as total_amount)\nNO transaction row yet")]
+    subgraph grp_2_balance_pay_the_rest_later["2. BALANCE: pay the rest later"]
+        bal_open["Participant opens the balance link\n---\nthank-you page Complete Payment button\nlink in the deposit email\nComplete Payment popup if the same email registers again"]
+        bal_step3["Step 3 Payment: balance\n---\namount = balance_due\npurpose = REMAINING_AMOUNT\nevery Pay now click creates a new transaction"]
+        bal_t_ok[("INSERT T, then UPDATE\n---\nprogram_participant_transaction\nPENDING -&gt; CONFIRMED")]
+        bal_p1_ok[("UPDATE P1\n---\nprogram_participant\nbalance_due = balance_due - amount paid (becomes 0)")]
+        bal_mail_ok(["Confirmation email\n---\nbalance_due is 0 now"])
+        bal_thankyou["Thank you page: payment successful\n---\nshows Amount Paid Now and Total Amount"]
+        bal_t_fail[("INSERT T, then UPDATE\n---\nPENDING -&gt; FAILED")]
+        bal_no_mail(["NO failure email\n---\nbalance_due is not equal to total_amount\nparticipant uses Try again on the failed page"])
+    end
+    subgraph grp_1_deposit_pay_the_deposit_in_step_3["1. DEPOSIT: pay the deposit in step 3"]
+        dep_step3["Step 3 Payment: deposit\n---\namount = deposit_amount\npurpose = DEPOSIT\nevery Pay now click creates a new transaction"]
+        dep_t_ok[("INSERT T, then UPDATE\n---\nprogram_participant_transaction\nPENDING -&gt; CONFIRMED\nP1 becomes visible (first transaction webhook)")]
+        dep_p1_ok[("UPDATE P1\n---\nprogram_participant\nbalance_due = balance_due - deposit paid\npayment_status CONFIRMED (DB trigger)")]
+        dep_mail_ok(["Deposit email\n---\nDEPOSIT_EMAIL\nhas the link to pay the balance"])
+        dep_thankyou["Thank you page: deposit successful\n---\nshows Deposit Paid and Balance Amount\nComplete Payment button (balance_due &gt; 0)"]
+        dep_t_fail[("INSERT T, then UPDATE\n---\nPENDING -&gt; FAILED")]
+        dep_mail_fail(["Deposit failed email\n---\nDEPOSIT_FAILED\nsent whatever the balance\nhas the retry link"])
+    end
+    flow_start --&gt; rx_step1
+    rx_step1 --&gt;|"Continue"| tbl_user
+    tbl_user --&gt; rx_step2
+    rx_step2 --&gt;|"Continue with Pay Deposit"| tbl_p1
+    tbl_p1 --&gt;|"&lt;span style='color:rgb(21,101,192);font-weight:bold'&gt;Payment step link&lt;/span&gt;"| dep_step3
+    dep_step3 --&gt;|"click Pay now: payment succeeds"| dep_t_ok
+    dep_t_ok --&gt; dep_p1_ok
+    dep_t_ok --&gt; dep_mail_ok
+    dep_t_ok --&gt;|"&lt;span style='color:rgb(46,125,50);font-weight:bold'&gt;Thank you link&lt;/span&gt;"| dep_thankyou
+    dep_step3 --&gt;|"click Pay now: payment declined"| dep_t_fail
+    dep_t_fail --&gt; dep_mail_fail
+    dep_mail_fail -.-&gt;|"&lt;span style='color:rgb(230,81,0);font-weight:bold'&gt;Retry link&lt;/span&gt;&lt;br/&gt;Pay now again creates a new row"| dep_step3
+    dep_thankyou --&gt;|"&lt;span style='color:rgb(21,101,192);font-weight:bold'&gt;Payment step link&lt;/span&gt;&lt;br/&gt;Complete Payment button"| bal_open
+    dep_mail_ok --&gt;|"&lt;span style='color:rgb(21,101,192);font-weight:bold'&gt;Payment step link&lt;/span&gt;&lt;br/&gt;link in the email"| bal_open
+    bal_open --&gt; bal_step3
+    bal_step3 --&gt;|"click Pay now: payment succeeds"| bal_t_ok
+    bal_t_ok --&gt; bal_p1_ok
+    bal_t_ok --&gt; bal_mail_ok
+    bal_t_ok --&gt;|"&lt;span style='color:rgb(46,125,50);font-weight:bold'&gt;Thank you link&lt;/span&gt;"| bal_thankyou
+    bal_step3 --&gt;|"click Pay now: payment declined"| bal_t_fail
+    bal_t_fail --&gt; bal_no_mail
+    bal_t_fail -.-&gt;|"&lt;span style='color:rgb(230,81,0);font-weight:bold'&gt;Retry link&lt;/span&gt;&lt;br/&gt;Try again on the failed page"| bal_step3
+    linkStyle 4 stroke:#1565c0,stroke-width:3px
+    linkStyle 8 stroke:#2e7d32,stroke-width:3px
+    linkStyle 11 stroke:#e65100,stroke-width:3px
+    linkStyle 12 stroke:#1565c0,stroke-width:3px
+    linkStyle 13 stroke:#1565c0,stroke-width:3px
+    linkStyle 18 stroke:#2e7d32,stroke-width:3px
+    linkStyle 21 stroke:#e65100,stroke-width:3px
+
+    classDef rxScreen fill:#ffcdd2,stroke:#b71c1c,stroke-width:2px;
+    classDef bxScreen fill:#e0f7fa,stroke:#006064,stroke-width:2px;
+    classDef bxService fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px;
+    classDef capsService fill:#eceff1,stroke:#37474f,stroke-width:2px;
+    classDef userRow fill:#ede7f6,stroke:#4527a0,stroke-width:2px;
+    classDef participantRow fill:#e3f2fd,stroke:#0d47a1,stroke-width:2px;
+    classDef txPending fill:#fff59d,stroke:#f9a825,stroke-width:2px;
+    classDef txProcessing fill:#b3e5fc,stroke:#0277bd,stroke-width:2px;
+    classDef txConfirmed fill:#a5d6a7,stroke:#2e7d32,stroke-width:2px;
+    classDef txFailed fill:#ef9a9a,stroke:#c62828,stroke-width:2px;
+    classDef txNotReceived fill:#ffccbc,stroke:#bf360c,stroke-width:2px;
+    classDef txNone fill:#f5f5f5,stroke:#9e9e9e,stroke-width:2px;
+    classDef email fill:#ffe0b2,stroke:#e65100,stroke-width:2px;
+    classDef startNode fill:#2e7d32,stroke:#1b5e20,stroke-width:3px,color:#fff;
+    classDef problem fill:#ffebee,stroke:#c62828,stroke-width:3px,stroke-dasharray:6 3;
+    classDef expected fill:#c8e6c9,stroke:#2e7d32,stroke-width:3px;
+    class flow_start startNode;
+    class rx_step1,rx_step2,bal_open,bal_step3,bal_thankyou,dep_step3,dep_thankyou rxScreen;
+    class tbl_user userRow;
+    class tbl_p1,bal_p1_ok,dep_p1_ok participantRow;
+    class bal_t_ok,dep_t_ok txConfirmed;
+    class bal_mail_ok,bal_no_mail,dep_mail_ok,dep_mail_fail email;
+    class bal_t_fail,dep_t_fail txFailed;
+    style grp_users fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;
+    style grp_2_balance_pay_the_rest_later fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;
+    style grp_1_deposit_pay_the_deposit_in_step_3 fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;
+</div>
+
+<div class="note-box"><h3>Built URL</h3><p><span class="link-name" style="background:#1565c0">Payment step link</span> Step 3 link (rx builds it after step 2). Any link with ?ref= opens step 3:<br><code>&lt;rx origin&gt;/&lt;locale&gt;/programs/&lt;program_id&gt;?ref=&lt;registration_id&gt;</code></p><p>The same link pays the balance later. Step 3 reads the registration: while the deposit is not paid it charges deposit_amount with purpose DEPOSIT, after the deposit it charges balance_due with purpose REMAINING_AMOUNT.</p><p><span class="link-name" style="background:#1565c0">Payment step link</span> Complete Payment button on the thank-you page opens the same step 3 link. The deposit email link, built by BX, is:<br><code>&lt;retry_payment_url&gt;?ref=&lt;registration_id&gt;</code></p><p>retry_payment_url is saved on the participant at step 2 (rx sends &lt;rx origin&gt;/&lt;locale&gt;/programs/&lt;program_id&gt;).</p><p><span class="link-name" style="background:#2e7d32">Thank you link</span> After the gateway, success or processing goes to:<br><code>&lt;rx origin&gt;/&lt;locale&gt;/programs/&lt;program_id&gt;/thankyou?ref=&lt;registration_id&gt;&amp;caps_transaction_id=&lt;CAPS id&gt;</code></p><p><span class="link-name" style="background:#c62828">Fail link</span> Failed, or any other status, goes to:<br><code>&lt;rx origin&gt;/&lt;locale&gt;/programs/&lt;program_id&gt;/failed?ref=&lt;registration_id&gt;&amp;caps_transaction_id=&lt;CAPS id&gt;</code></p><p><span class="link-name" style="background:#e65100">Retry link</span> Try again on the failed page opens the retry page. The deposit failed email, built by BX, links to the same page:<br><code>&lt;retry_payment_url&gt;/retry-payment?ref=&lt;ref&gt;&amp;caps_transaction_id=&lt;CAPS id&gt;</code></p><p>In the email link, BX picks ref as the participant code when the participant has one, otherwise the registration id.</p><p>The links never change. If the payment is already finished (PROCESSING, or CONFIRMED with balance_due 0), opening the step 3 link goes to the thank-you page.</p></div>
+<table class="counts"><tr><th>Step</th><th>Table</th><th>Rows</th></tr><tr><td><b>Step 1</b></td><td>users</td><td>INSERT user (or UPDATE if the email already exists)</td></tr><tr><td><b>Step 2, Pay Deposit</b></td><td>program_participant</td><td>INSERT P1: deposit_type = DEPOSIT, deposit_amount = the deposit, total_amount = full amount, balance_due = full amount</td></tr><tr><td><b>Step 3, deposit paid</b></td><td>program_participant_transaction, program_participant</td><td>INSERT T (PENDING), then CONFIRMED; UPDATE P1: balance_due = balance_due - deposit paid</td></tr><tr><td><b>Step 3, deposit declined</b></td><td>program_participant_transaction</td><td>INSERT T (PENDING), then FAILED. Pay now again inserts a new T</td></tr><tr><td><b>Balance paid</b></td><td>program_participant_transaction, program_participant</td><td>INSERT T (PENDING), then CONFIRMED; UPDATE P1: balance_due = balance_due - amount paid (becomes 0)</td></tr><tr><td><b>Balance declined</b></td><td>program_participant_transaction</td><td>INSERT T (PENDING), then FAILED. Try again inserts a new T</td></tr></table>
+<ul class="points"><li>Deposit registration: the participant pays a part now (deposit_amount) and the rest later (balance_due).</li><li>At step 2, balance_due is the full amount, the same as total_amount. It drops only when the deposit is paid.</li><li>Every Pay now click creates a new transaction row. A failed row is never reused.</li><li>A failed deposit sends the deposit failed email whatever the balance. A failed balance payment sends no email: the failure email needs balance_due to equal total_amount, and after the deposit it does not.</li><li>The balance is paid online with the thank-you button, the email link or the Complete Payment popup. The teacher recording the balance as an offline payment is not drawn here.</li></ul>
+<div class="notes"></div>
+</body>
+</html>

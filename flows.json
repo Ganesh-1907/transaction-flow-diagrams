@@ -1,0 +1,48 @@
+{
+  "title": "Transaction Flows",
+  "subtitle": "program_participant and program_participant_transaction rows per scenario",
+  "flows": [
+    {
+      "file": "registration-sale",
+      "label": "Adult course",
+      "group": "Registration Sale",
+      "icon": "🎓"
+    },
+    {
+      "file": "registration-deposit",
+      "label": "Adult course (deposit)",
+      "group": "Registration Sale",
+      "icon": "💰"
+    },
+    {
+      "file": "additional-sale",
+      "label": "Additional sale",
+      "group": "Additional Sale",
+      "icon": "🧾"
+    },
+    {
+      "file": "additional-sale-option-a",
+      "label": "Option A: fill T1, then new rows",
+      "group": "Additional Sale (proposed)",
+      "icon": "🅰️"
+    },
+    {
+      "file": "additional-sale-option-b",
+      "label": "Option B: T1 untouched, row per attempt",
+      "group": "Additional Sale (proposed)",
+      "icon": "🅱️"
+    },
+    {
+      "file": "event-registration",
+      "label": "Single: free, paid, zero fee",
+      "group": "Event Registration",
+      "icon": "🎫"
+    },
+    {
+      "file": "event-group-registration",
+      "label": "Group: free, paid, zero fee",
+      "group": "Event Registration",
+      "icon": "👥"
+    }
+  ]
+}

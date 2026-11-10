@@ -1,0 +1,279 @@
+# Transaction flow diagram. Edit this file, then run ./transaction_flow.sh
+# Same format as workflow-diagram-tool: nodes + edges. See README.md for the field list.
+
+workflow:
+  name: "Registration Sale - Adult course (full amount)"
+
+  # Named links: the name is shown in its colour in the Built URL box and on the arrows (link: <id>).
+  links:
+    - id: step3
+      name: "Payment step link"
+      color: "#1565c0"
+    - id: thankyou
+      name: "Thank you link"
+      color: "#2e7d32"
+    - id: fail
+      name: "Fail link"
+      color: "#c62828"
+    - id: retry
+      name: "Retry link"
+      color: "#e65100"
+
+  nodes:
+    # ---- start marker (green circle)
+    - id: flow_start
+      label: "START"
+      type: marker
+      subtype: start
+
+    # ---- step 1: users table
+    - id: rx_step1
+      label: "Step 1 Personal info"
+      type: frontend_screen
+      subtype: rx_screen
+      context: "name, email, mobile"
+
+    - id: tbl_user
+      label: "INSERT or UPDATE user"
+      type: db_row
+      subtype: user_row
+      group: users
+
+    # ---- step 2: program_participant table
+    - id: rx_step2
+      label: "Step 2 Registration details"
+      type: frontend_screen
+      subtype: rx_screen
+      context: "fees, discount code, agreements"
+
+    - id: tbl_participant
+      label: "INSERT P1"
+      type: db_row
+      subtype: participant_row
+      group: program_participant
+      context:
+        - "payment_status PENDING"
+        - "balance_due = total_amount"
+        - "NO transaction row yet"
+
+    # ---- step 3: every Pay now click = one new transaction row
+    - id: rx_step3
+      label: "Step 3 Payment"
+      type: frontend_screen
+      subtype: rx_screen
+      context:
+        - "every Pay now click creates a new transaction"
+        - "also opened again from the retry email link"
+
+    # ---- click 1: card entered, PIN not completed, tab closed
+    - id: tbl_t1
+      label: "INSERT T1"
+      type: db_row
+      subtype: transaction_row
+      group: program_participant_transaction
+      state: PENDING
+      context: "P1 becomes visible (first transaction webhook)"
+
+    - id: rx_close
+      label: "Case 1: user closes the tab"
+      type: frontend_screen
+      subtype: rx_screen
+      context: "nothing else runs in rx"
+
+    - id: rx_back
+      label: "Case 2: user clicks Back"
+      type: frontend_screen
+      subtype: rx_screen
+      context:
+        - "step 3 reloads from the server"
+        - "T1 is PENDING (not final), so step 3 opens again"
+
+    - id: caps_rescue
+      label: "CAPS rescue service"
+      type: backend_service
+      subtype: caps_service
+      context:
+        - "hourly job, T1 has no gateway id"
+        - "Tupaggo: PENDING over 72h, other gateways: over 1h"
+
+    - id: tbl_t1_failed
+      label: "UPDATE T1"
+      type: db_row
+      subtype: transaction_row
+      group: program_participant_transaction
+      state: FAILED
+      context: "PENDING -> FAILED"
+
+    # ---- click 2: payment declined
+    - id: tbl_t2
+      label: "INSERT T2, then UPDATE"
+      type: db_row
+      subtype: transaction_row
+      group: program_participant_transaction
+      state: FAILED
+      context: "PENDING -> FAILED"
+
+    # ---- the gateway sends the participant back to the failed page
+    - id: rx_failed
+      label: "Failed page"
+      type: frontend_screen
+      subtype: rx_screen
+      context:
+        - "payment failed or any other status"
+        - "has a Try again button"
+
+    # ---- retry email: one email, its link opens step 3
+    - id: mail_retry
+      label: "Retry payment email"
+      type: notification
+      subtype: email
+      context:
+        - "sent when T1 or T2 turns FAILED"
+        - "balance_due == total_amount (nothing paid yet)"
+
+    # ---- click 3: payment succeeds
+    - id: tbl_t3
+      label: "INSERT T3, then UPDATE"
+      type: db_row
+      subtype: transaction_row
+      group: program_participant_transaction
+      state: CONFIRMED
+      context: "PENDING -> CONFIRMED"
+
+    - id: rx_thankyou
+      label: "Thank you page"
+      type: frontend_screen
+      subtype: rx_screen
+      context: "payment success or processing"
+
+    - id: tbl_participant_paid
+      label: "UPDATE P1"
+      type: db_row
+      subtype: participant_row
+      group: program_participant
+      context:
+        - "balance_due reduced by the amount paid"
+        - "payment_status CONFIRMED (DB trigger)"
+
+    - id: mail_confirm
+      label: "Confirmation email"
+      type: notification
+      subtype: email
+
+  edges:
+    - from: flow_start
+      to: rx_step1
+    - from: rx_step1
+      to: tbl_user
+      condition: "Continue"
+    - from: tbl_user
+      to: rx_step2
+    - from: rx_step2
+      to: tbl_participant
+      condition: "Continue"
+    - from: tbl_participant
+      to: rx_step3
+      link: step3
+    # click 1
+    - from: rx_step3
+      to: tbl_t1
+      condition: "click 1: CAPS order, webhook created"
+    - from: tbl_t1
+      to: rx_close
+      condition: "card / PIN not finished"
+    - from: tbl_t1
+      to: rx_back
+      condition: "card / PIN not finished"
+    - from: rx_back
+      to: rx_step3
+      condition: "step 3 opens again"
+      style: dashed
+    - from: tbl_t1
+      to: caps_rescue
+      condition: "stays PENDING"
+      style: dashed
+    - from: caps_rescue
+      to: tbl_t1_failed
+      condition: "webhook failed"
+    - from: tbl_t1_failed
+      to: mail_retry
+    # click 2
+    - from: rx_step3
+      to: tbl_t2
+      condition: "click 2: payment declined"
+    - from: tbl_t2
+      to: mail_retry
+    - from: tbl_t2
+      to: rx_failed
+      link: fail
+    - from: rx_failed
+      to: rx_step3
+      link: retry
+      condition: "Try again button"
+      style: dashed
+    # the email link opens step 3 again
+    - from: mail_retry
+      to: rx_step3
+      link: retry
+      condition: "participant clicks it, step 3 opens again"
+      style: dashed
+    # click 3
+    - from: rx_step3
+      to: tbl_t3
+      condition: "click 3: payment succeeds"
+    - from: tbl_t3
+      to: tbl_participant_paid
+      condition: "balance_due reduced"
+    - from: tbl_t3
+      to: mail_confirm
+    - from: tbl_t3
+      to: rx_thankyou
+      link: thankyou
+
+  steps:
+    - step: "Step 1"
+      table: users
+      change: "INSERT user (or UPDATE if the email already exists)"
+    - step: "Step 2"
+      table: program_participant
+      change: "INSERT P1, payment_status PENDING"
+    - step: "Step 3, click 1"
+      table: program_participant_transaction
+      change: "INSERT T1 PENDING, then FAILED (rescue service)"
+    - step: "Step 3, click 2"
+      table: program_participant_transaction
+      change: "INSERT T2 PENDING, then FAILED (declined)"
+    - step: "Step 3, click 3"
+      table: program_participant_transaction
+      change: "INSERT T3 PENDING, then CONFIRMED"
+    - step: "Step 3, click 3"
+      table: program_participant
+      change: "UPDATE P1, balance_due reduced, payment_status CONFIRMED"
+
+  points:
+    - "Step 1 writes the users row."
+    - "Step 2 inserts the program_participant row."
+    - "Every Pay now click in step 3 creates one more transaction row."
+    - "T1 abandoned: PENDING, later FAILED by the rescue service."
+    - "T2 declined: FAILED."
+    - "T3 paid: CONFIRMED."
+    - "After a failed attempt, the retry email link opens step 3 again."
+
+  boxes:
+    - title: "Built URL"
+      lines:
+        - link: step3
+          text: "rx builds it after step 2. Any link with ?ref= opens step 3:"
+          code: "<rx origin>/<locale>/programs/<program_id>?ref=<registration_id>"
+        - "registration_id is the participant's registration UUID, returned by the step 2 registration call. rx also sends it to CAPS as participant_id when Pay now is clicked."
+        - link: thankyou
+          text: "After the gateway, success or processing goes to:"
+          code: "<rx origin>/<locale>/programs/<program_id>/thankyou?ref=<registration_id>&caps_transaction_id=<CAPS id>"
+        - link: fail
+          text: "Failed, or any other status, goes to:"
+          code: "<rx origin>/<locale>/programs/<program_id>/failed?ref=<registration_id>&caps_transaction_id=<CAPS id>"
+        - link: retry
+          text: "Sent in the retry email (built by BX):"
+          code: "<participant retry_payment_url>/retry-payment?ref=<registration_id>&caps_transaction_id=<CAPS id>"
+        - "retry_payment_url is saved on the participant at step 2 (rx sends <rx origin>/<locale>/programs/<program_id>). The Try again button on the failed page opens the same retry-payment page."
+        - "The links never change. If the payment is already finished, opening the step 3 link goes to the thank-you page."

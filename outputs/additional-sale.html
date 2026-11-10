@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Additional Sale (Fee Adjustments) - Course participant</title>
+<style>
+    body { margin: 0; padding: 20px; background: white; font-family: sans-serif; }
+    h1 { text-align: center; margin: 10px 0 6px; font-size: 1.4em; }
+    .summary { text-align: center; max-width: 1000px; margin: 0 auto 14px; color: #444; font-size: 0.95em; }
+    .legend-box { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 10px 16px; margin: 0 auto 16px;
+                  border: 2px solid #424242; border-radius: 6px; background: #fafafa; max-width: fit-content; }
+    .legend-item { padding: 4px 9px; border-radius: 3px; font-size: 0.8em; font-weight: 500; }
+    .mermaid { overflow: auto; margin: 10px 0; text-align: center; }
+    table.counts { border-collapse: collapse; margin: 18px auto; min-width: 700px; }
+    table.counts th { background: #263238; color: #fff; text-align: left; padding: 7px 12px; font-size: 0.85em; }
+    table.counts td { border: 1px solid #cfd8dc; padding: 7px 12px; font-size: 0.85em; }
+    .points { max-width: 1000px; margin: 14px auto; color: #444; font-size: 0.9em; line-height: 1.6; }
+    .points > li { margin-top: 8px; }
+    .points > li > ul { margin: 2px 0 6px; }
+    .note-box { max-width: 1000px; margin: 18px auto; padding: 12px 18px; border: 2px solid #f9a825; border-radius: 6px;
+                background: #fff59d; color: #333; font-size: 0.9em; line-height: 1.5; }
+    .note-box h3 { margin: 0 0 8px; font-size: 1.05em; }
+    .note-box p { margin: 8px 0; overflow-wrap: anywhere; }
+    .link-name { display: inline-block; padding: 1px 9px; margin-right: 4px; border-radius: 10px; color: #fff; font-weight: 700; font-size: 0.95em; }
+    .note-box code { display: inline-block; margin-top: 3px; padding: 2px 6px; background: rgba(255, 255, 255, 0.85); border: 1px solid #e0c94f; border-radius: 3px; font-size: 0.95em; }
+    .notes { max-width: 1000px; margin: 0 auto; color: #555; font-size: 0.8em; }
+</style>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: true, theme: 'default', flowchart: { useMaxWidth: false } });
+</script>
+</head>
+<body>
+<div class="legend-box"><span class="legend-item" style="background:#ffcdd2;border:1px solid #b71c1c;stroke-width:2px">rx screen</span><span class="legend-item" style="background:#e0f7fa;border:1px solid #006064;stroke-width:2px">BX screen (teacher)</span><span class="legend-item" style="background:#e3f2fd;border:1px solid #0d47a1;stroke-width:2px">program_participant row</span><span class="legend-item" style="background:#fff59d;border:1px solid #f9a825;stroke-width:2px">transaction PENDING</span><span class="legend-item" style="background:#a5d6a7;border:1px solid #2e7d32;stroke-width:2px">transaction CONFIRMED</span><span class="legend-item" style="background:#ef9a9a;border:1px solid #c62828;stroke-width:2px">transaction FAILED</span><span class="legend-item" style="background:#ffccbc;border:1px solid #bf360c;stroke-width:2px">transaction NOT_RECEIVED</span><span class="legend-item" style="background:#ffe0b2;border:1px solid #e65100;stroke-width:2px">email</span></div>
+<h1>Additional Sale (Fee Adjustments) - Course participant</h1>
+<p class="summary"></p>
+<div class="mermaid">
+flowchart TD
+    flow_start(("START"))
+    bx_popup["Teacher opens Fee Adjustments\n---\nfees, reason, Payment Mode\nonly when the participant has fully paid"]
+    subgraph grp_offline_teacher_records_the_payment["OFFLINE: teacher records the payment"]
+        off_t_pend[("INSERT T\n---\nprogram_participant_transaction\nis_additional_sale = true")]
+        off_edit["Teacher edits the payment, status Confirmed\n---\nmoney received"]
+        off_t_ok[("UPDATE T\n---\nPENDING -&gt; CONFIRMED")]
+        off_p1_ok[("UPDATE P1\n---\nbalance_due = balance_due - amount paid")]
+        off_mail_ok2(["Success email\n---\nonly if send confirmation is ticked"])
+        off_p1_pend[("UPDATE P1\n---\nbalance_due = amount\ntotal_amount = total_amount + amount")]
+        off_mail_req(["Request email\n---\nto the participant, teacher CC optional\nstill has the Pay link"])
+        off_rx_pay["Participant clicks the Pay link and pays online\n---\nAdditional sale page: Continue, Pay now\nCAPS order, webhook updates the same T"]
+        off_t_online[("UPDATE T\n---\nPENDING -&gt; CONFIRMED\npayment method changes from offline to the online one\ntotal_amount = amount paid online")]
+        off_p1_online[("UPDATE P1\n---\nbalance_due = balance_due - amount paid (becomes 0)")]
+        off_mail_ok3(["Success email\n---\nwith invoice"])
+        off_t_fail[("UPDATE T\n---\nPENDING -&gt; FAILED\npayment method changes to the online one\nteacher cannot edit it or create a new additional sale")]
+        off_mail_fail(["Failure email\n---\nhas the Retry link\nparticipant must pay with it, the same T is updated"])
+        off_thankyou["Thank you page\n---\npayment success or processing"]
+        off_failed["Failed page\n---\npayment failed or any other status\nhas a Try again button"]
+        off_close["Participant closes the tab or clicks Back\n---\nT stays PENDING\nthe link still works\npayment method may already show online"]
+        off_t_conf[("INSERT T\n---\nprogram_participant_transaction\nis_additional_sale = true\nmethod, date, receipt saved")]
+        off_p1_conf[("UPDATE P1\n---\nprogram_participant\ntotal_amount = total_amount + amount\nbalance_due unchanged")]
+        off_mail_ok1(["Success email\n---\nwith invoice"])
+    end
+    subgraph grp_revoke_same_for_online_and_offline["REVOKE: same for online and offline"]
+        rev_click["Teacher clicks Revoke\n---\nonly while T is PENDING"]
+        rev_t[("UPDATE T\n---\nPENDING -&gt; NOT_RECEIVED")]
+        rev_p1[("UPDATE P1\n---\ntotal_amount = total_amount - amount\nbalance_due = balance_due - amount")]
+        rev_mail(["Revoke email\n---\nthe link now says revoked"])
+    end
+    subgraph grp_online_participant_pays_with_the_email_link["ONLINE: participant pays with the email link"]
+        on_t_new[("INSERT T\n---\nprogram_participant_transaction\nis_additional_sale = true")]
+        on_p1_new[("UPDATE P1\n---\nprogram_participant\nbalance_due = amount\ntotal_amount = total_amount + amount")]
+        on_mail_request(["Request email\n---\nto the participant, teacher CC optional\nhas the Pay link"])
+        on_rx_pay["Additional sale page: Continue, Pay now\n---\nparticipant opens the link\nCAPS order, webhook updates the same T"]
+        on_t_ok[("UPDATE T\n---\nPENDING -&gt; CONFIRMED")]
+        on_p1_ok[("UPDATE P1\n---\nbalance_due = balance_due - amount paid")]
+        on_mail_ok(["Success email\n---\nwith invoice"])
+        on_t_fail[("UPDATE T\n---\nPENDING -&gt; FAILED\nteacher cannot edit it or create a new additional sale")]
+        on_mail_fail(["Failure email\n---\nhas the Retry link\nparticipant must pay with it, the same T is updated"])
+        on_thankyou["Thank you page\n---\npayment success or processing"]
+        on_failed["Failed page\n---\npayment failed or any other status\nhas a Try again button"]
+        on_close["Participant closes the tab or clicks Back\n---\nT stays PENDING\nthe link still works"]
+    end
+    flow_start --&gt; bx_popup
+    bx_popup --&gt;|"Payment Mode: Online"| on_t_new
+    on_t_new --&gt; on_p1_new
+    on_p1_new --&gt; on_mail_request
+    on_mail_request --&gt;|"&lt;span style='color:rgb(21,101,192);font-weight:bold'&gt;Pay link&lt;/span&gt;&lt;br/&gt;participant clicks it"| on_rx_pay
+    on_rx_pay --&gt;|"payment succeeds"| on_t_ok
+    on_t_ok --&gt; on_p1_ok
+    on_t_ok --&gt; on_mail_ok
+    on_t_ok --&gt;|"&lt;span style='color:rgb(46,125,50);font-weight:bold'&gt;Thank you link&lt;/span&gt;"| on_thankyou
+    on_rx_pay --&gt;|"payment declined"| on_t_fail
+    on_t_fail --&gt; on_mail_fail
+    on_t_fail --&gt;|"&lt;span style='color:rgb(198,40,40);font-weight:bold'&gt;Fail link&lt;/span&gt;"| on_failed
+    on_failed -.-&gt;|"&lt;span style='color:rgb(230,81,0);font-weight:bold'&gt;Retry link&lt;/span&gt;&lt;br/&gt;Try again button"| on_rx_pay
+    on_mail_fail -.-&gt;|"&lt;span style='color:rgb(230,81,0);font-weight:bold'&gt;Retry link&lt;/span&gt;&lt;br/&gt;opens the payment step again"| on_rx_pay
+    on_rx_pay -.-&gt; on_close
+    bx_popup --&gt;|"Payment Mode: Offline, status Pending"| off_t_pend
+    bx_popup --&gt;|"Payment Mode: Offline, status Confirmed"| off_t_conf
+    off_t_conf --&gt; off_p1_conf
+    off_t_conf --&gt; off_mail_ok1
+    off_t_pend -.-&gt;|"payment received"| off_edit
+    off_t_pend --&gt; off_p1_pend
+    off_p1_pend --&gt; off_mail_req
+    off_mail_req -.-&gt;|"&lt;span style='color:rgb(21,101,192);font-weight:bold'&gt;Pay link&lt;/span&gt;&lt;br/&gt;participant clicks it"| off_rx_pay
+    off_rx_pay --&gt;|"payment succeeds"| off_t_online
+    off_t_online --&gt; off_p1_online
+    off_t_online --&gt; off_mail_ok3
+    off_t_online --&gt;|"&lt;span style='color:rgb(46,125,50);font-weight:bold'&gt;Thank you link&lt;/span&gt;"| off_thankyou
+    off_rx_pay --&gt;|"payment declined"| off_t_fail
+    off_t_fail --&gt; off_mail_fail
+    off_t_fail --&gt;|"&lt;span style='color:rgb(198,40,40);font-weight:bold'&gt;Fail link&lt;/span&gt;"| off_failed
+    off_failed -.-&gt;|"&lt;span style='color:rgb(230,81,0);font-weight:bold'&gt;Retry link&lt;/span&gt;&lt;br/&gt;Try again button"| off_rx_pay
+    off_mail_fail -.-&gt;|"&lt;span style='color:rgb(230,81,0);font-weight:bold'&gt;Retry link&lt;/span&gt;&lt;br/&gt;opens the payment step again"| off_rx_pay
+    off_rx_pay -.-&gt; off_close
+    off_edit --&gt; off_t_ok
+    off_t_ok --&gt; off_p1_ok
+    off_t_ok --&gt; off_mail_ok2
+    on_t_new -.-&gt;|"while PENDING"| rev_click
+    off_t_pend -.-&gt;|"while PENDING"| rev_click
+    rev_click --&gt; rev_t
+    rev_t --&gt; rev_p1
+    rev_t --&gt; rev_mail
+    linkStyle 4 stroke:#1565c0,stroke-width:3px
+    linkStyle 8 stroke:#2e7d32,stroke-width:3px
+    linkStyle 11 stroke:#c62828,stroke-width:3px
+    linkStyle 12 stroke:#e65100,stroke-width:3px
+    linkStyle 13 stroke:#e65100,stroke-width:3px
+    linkStyle 22 stroke:#1565c0,stroke-width:3px
+    linkStyle 26 stroke:#2e7d32,stroke-width:3px
+    linkStyle 29 stroke:#c62828,stroke-width:3px
+    linkStyle 30 stroke:#e65100,stroke-width:3px
+    linkStyle 31 stroke:#e65100,stroke-width:3px
+
+    classDef rxScreen fill:#ffcdd2,stroke:#b71c1c,stroke-width:2px;
+    classDef bxScreen fill:#e0f7fa,stroke:#006064,stroke-width:2px;
+    classDef bxService fill:#c8e6c9,stroke:#1b5e20,stroke-width:2px;
+    classDef capsService fill:#eceff1,stroke:#37474f,stroke-width:2px;
+    classDef userRow fill:#ede7f6,stroke:#4527a0,stroke-width:2px;
+    classDef participantRow fill:#e3f2fd,stroke:#0d47a1,stroke-width:2px;
+    classDef txPending fill:#fff59d,stroke:#f9a825,stroke-width:2px;
+    classDef txProcessing fill:#b3e5fc,stroke:#0277bd,stroke-width:2px;
+    classDef txConfirmed fill:#a5d6a7,stroke:#2e7d32,stroke-width:2px;
+    classDef txFailed fill:#ef9a9a,stroke:#c62828,stroke-width:2px;
+    classDef txNotReceived fill:#ffccbc,stroke:#bf360c,stroke-width:2px;
+    classDef txNone fill:#f5f5f5,stroke:#9e9e9e,stroke-width:2px;
+    classDef email fill:#ffe0b2,stroke:#e65100,stroke-width:2px;
+    classDef startNode fill:#2e7d32,stroke:#1b5e20,stroke-width:3px,color:#fff;
+    classDef problem fill:#ffebee,stroke:#c62828,stroke-width:3px,stroke-dasharray:6 3;
+    classDef expected fill:#c8e6c9,stroke:#2e7d32,stroke-width:3px;
+    class flow_start startNode;
+    class bx_popup,off_edit,rev_click bxScreen;
+    class off_t_pend,on_t_new txPending;
+    class off_t_ok,off_t_online,off_t_conf,on_t_ok txConfirmed;
+    class off_p1_ok,off_p1_pend,off_p1_online,off_p1_conf,rev_p1,on_p1_new,on_p1_ok participantRow;
+    class off_mail_ok2,off_mail_req,off_mail_ok3,off_mail_fail,off_mail_ok1,rev_mail,on_mail_request,on_mail_ok,on_mail_fail email;
+    class off_rx_pay,off_thankyou,off_failed,off_close,on_rx_pay,on_thankyou,on_failed,on_close rxScreen;
+    class off_t_fail,on_t_fail txFailed;
+    class rev_t txNotReceived;
+    style grp_offline_teacher_records_the_payment fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;
+    style grp_revoke_same_for_online_and_offline fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;
+    style grp_online_participant_pays_with_the_email_link fill:#fafcff,stroke:#78909c,stroke-dasharray:4 3;
+</div>
+
+<div class="note-box"><h3>Built URL</h3><p><span class="link-name" style="background:#1565c0">Pay link</span> Built by BX when the sale is created, sent in the request email:<br><code>&lt;program registration_url&gt;/additional-sale?ref=&lt;registration_id&gt;+&lt;T id&gt;</code></p><p>The + is a space. rx splits ref into the registration id and the T id (separate trxn_id or trxnId parameters also work).</p><p><span class="link-name" style="background:#2e7d32">Thank you link</span> After the gateway, success or processing goes to:<br><code>&lt;rx origin&gt;/&lt;locale&gt;/programs/&lt;program_id&gt;/thankyou?ref=&lt;registration_id&gt;&amp;caps_transaction_id=&lt;CAPS id&gt;</code></p><p><span class="link-name" style="background:#c62828">Fail link</span> Failed, or any other status, goes to:<br><code>&lt;rx origin&gt;/&lt;locale&gt;/programs/&lt;program_id&gt;/failed?ref=&lt;registration_id&gt;%20&lt;T id&gt;&amp;caps_transaction_id=&lt;CAPS id&gt;</code></p><p>The Try again button on the failed page opens the retry-payment page with the same ref (registration id and T id).</p><p><span class="link-name" style="background:#e65100">Retry link</span> Sent in the failure email:<br><code>&lt;participant retry_payment_url&gt;/retry-payment?ref=&lt;registration_id&gt;%20&lt;T id&gt;&amp;caps_transaction_id=&lt;CAPS id&gt;</code></p><p>The link never changes and revoke does not disable it. Each time it opens, rx asks BX for the row with this T id and picks the screen from its status:</p><p>CONFIRMED: Actions Already Completed. NOT_RECEIVED (revoked): the revoked message with the revoke date. PENDING or FAILED: the payment page.</p></div>
+<table class="counts"><tr><th>Step</th><th>Table</th><th>Rows</th></tr><tr><td><b>Teacher submits, Online</b></td><td>program_participant_transaction, program_participant</td><td>INSERT T (PENDING); UPDATE P1: balance_due = amount, total_amount = total_amount + amount</td></tr><tr><td><b>Participant pays</b></td><td>program_participant_transaction, program_participant</td><td>UPDATE T to CONFIRMED; UPDATE P1: balance_due = balance_due - amount paid. A declined payment sets T to FAILED, the retry updates the same T</td></tr><tr><td><b>Teacher submits, Offline, Confirmed</b></td><td>program_participant_transaction, program_participant</td><td>INSERT T (CONFIRMED); UPDATE P1: total_amount = total_amount + amount, balance_due unchanged</td></tr><tr><td><b>Teacher submits, Offline, Pending</b></td><td>program_participant_transaction, program_participant</td><td>INSERT T (PENDING); UPDATE P1: balance_due = amount, total_amount = total_amount + amount</td></tr><tr><td><b>Offline Pending, participant pays online with the link</b></td><td>program_participant_transaction, program_participant</td><td>UPDATE T to CONFIRMED: payment method becomes the online one, T total_amount = amount paid online; UPDATE P1: balance_due = balance_due - amount paid (becomes 0)</td></tr><tr><td><b>Offline Pending, online payment declined</b></td><td>program_participant_transaction</td><td>UPDATE T to FAILED: payment method becomes the online one. The retry updates the same T</td></tr><tr><td><b>Teacher edits the payment to Confirmed</b></td><td>program_participant_transaction, program_participant</td><td>UPDATE T to CONFIRMED; UPDATE P1: balance_due = balance_due - amount paid</td></tr><tr><td><b>Teacher revokes, online or offline (PENDING only)</b></td><td>program_participant_transaction, program_participant</td><td>UPDATE T to NOT_RECEIVED; UPDATE P1: total_amount = total_amount - amount, balance_due = balance_due - amount</td></tr></table>
+<ul class="points"><li>An additional sale is one row in program_participant_transaction (is_additional_sale = true), created by the teacher.</li><li>Payments update that same row. A Pay click never creates a new one.</li><li>Online: the participant pays with the link in the email. Offline: the teacher records the payment in BX.</li><li>The participant always gets the request email. Only the teacher CC is optional.</li><li>No reminder and no expiry: an unpaid T stays PENDING and balance_due stays raised until it is paid or revoked.</li><li>Revoke is the same for online and offline, and works only while T is PENDING.</li><li>Offline Pending still emails a pay link. If the participant pays online with it, T switches to the online payment method, and the teacher can no longer edit or revoke it.</li><li>If the payment fails, T becomes FAILED. The teacher cannot edit it or create a new additional sale.</li><li>The participant has to pay again with the link in the failure email, and the same T is updated.</li></ul>
+<div class="notes"></div>
+</body>
+</html>
