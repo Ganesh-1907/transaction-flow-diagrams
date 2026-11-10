@@ -4,7 +4,7 @@ Same idea as `workflow-diagram-tool`: describe a flow in plain English (YAML) an
 
 ## Quick Start
 
-One command to build everything and open `outputs/index.html` in your browser:
+One command to build everything and open `docs/index.html` in your browser:
 
 ```bash
 cd /home/ganesh/Desktop/bx/transaction-flow-diagrams && ./transaction_flow.sh --open
@@ -13,22 +13,22 @@ cd /home/ganesh/Desktop/bx/transaction-flow-diagrams && ./transaction_flow.sh --
 Other ways to run it:
 
 ```bash
-./transaction_flow.sh                          # build all YAML files + outputs/index.html (no browser)
+./transaction_flow.sh                          # build all YAML files + docs/index.html (no browser)
 ./transaction_flow.sh registration-sale        # build one flow (with or without .yaml)
 ./transaction_flow.sh registration-sale --open # --open (or -o) works with any of the above
 ```
 
-Without `--open`, open `outputs/index.html` in a browser yourself. `--open` uses `xdg-open` on Linux and `open` on macOS. The first run creates the Python `venv` and installs `requirements.txt` automatically. The HTML pages load Mermaid from the internet (CDN), exactly like `workflow-diagram-tool`, so you need internet to see the diagrams.
+Without `--open`, open `docs/index.html` in a browser yourself. `--open` uses `xdg-open` on Linux and `open` on macOS. The first run creates the Python `venv` and installs `requirements.txt` automatically. The HTML pages load Mermaid from the internet (CDN), exactly like `workflow-diagram-tool`, so you need internet to see the diagrams.
 
 ## Folder
 
 | File | Edit it? | What it is |
 |---|---|---|
 | `*.yaml` | **yes** | one file per flow |
-| `flows.json` | **yes** | the list shown in `outputs/index.html` (label, group, icon) |
+| `flows.json` | **yes** | the list shown in `docs/index.html` (label, group, icon) |
 | `transaction_flow.sh` | no | builds everything |
 | `transaction_flow_converter.py` | rarely | YAML -> `.mmd` + `.html`, validation |
-| `outputs/` | no | generated: `<name>.html`, `<name>.mmd`, `index.html` |
+| `docs/` | no | generated: `<name>.html`, `<name>.mmd`, `index.html` |
 
 ## Add a new flow
 

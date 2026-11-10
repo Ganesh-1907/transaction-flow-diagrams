@@ -5,7 +5,7 @@
 #   ./transaction_flow.sh registration-sale        # build registration-sale.yaml
 #   ./transaction_flow.sh registration-sale.yaml   # same as above
 #   ./transaction_flow.sh all                      # build all YAML files + index.html
-#   ./transaction_flow.sh --open                   # build all, then open outputs/index.html in the browser
+#   ./transaction_flow.sh --open                   # build all, then open docs/index.html in the browser
 #   ./transaction_flow.sh registration-sale --open # --open works with any of the above
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,15 +30,15 @@ fi
 build_file() {
   local yaml_file="$1"
   echo "Building: $(basename "$yaml_file")"
-  python "$SCRIPT_DIR/transaction_flow_converter.py" "$yaml_file" --output-dir "$SCRIPT_DIR/outputs"
+  python "$SCRIPT_DIR/transaction_flow_converter.py" "$yaml_file" --output-dir "$SCRIPT_DIR/docs"
 }
 
 build_index() {
-  python "$SCRIPT_DIR/transaction_flow_converter.py" --index --output-dir "$SCRIPT_DIR/outputs"
+  python "$SCRIPT_DIR/transaction_flow_converter.py" --index --output-dir "$SCRIPT_DIR/docs"
 }
 
 open_index() {
-  local index="$SCRIPT_DIR/outputs/index.html"
+  local index="$SCRIPT_DIR/docs/index.html"
   if command -v xdg-open >/dev/null 2>&1; then
     xdg-open "$index" >/dev/null 2>&1 &
   elif command -v open >/dev/null 2>&1; then

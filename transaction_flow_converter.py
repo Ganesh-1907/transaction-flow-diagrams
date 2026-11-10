@@ -2,7 +2,7 @@
 """
 Transaction Flow Diagram Converter
 Converts English-like YAML flow definitions into a Mermaid.js diagram (.mmd) and a self-contained
-HTML preview (.html). Also builds index.html from flows.json. Everything is written to outputs/.
+HTML preview (.html). Also builds index.html from flows.json. Everything is written to docs/.
 Same idea as workflow-diagram-tool: the HTML page draws the diagram in the browser with Mermaid.
 
 Supports:
@@ -521,12 +521,12 @@ def main():
     parser = argparse.ArgumentParser(description="Convert a transaction flow YAML to Mermaid and HTML.")
     parser.add_argument("input", nargs="?", help="Path to input YAML file (omit with --index)")
     parser.add_argument("--output-dir", default=None,
-                        help="Directory for the generated files (default: ./outputs next to this script)")
+                        help="Directory for the generated files (default: ./docs next to this script)")
     parser.add_argument("--index", action="store_true", help="Only (re)build index.html from flows.json")
     args = parser.parse_args()
 
     here = Path(__file__).resolve().parent
-    output_dir = Path(args.output_dir) if args.output_dir else here / "outputs"
+    output_dir = Path(args.output_dir) if args.output_dir else here / "docs"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if args.index:
